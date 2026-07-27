@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="system">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LAZEIMS Station</title>
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("theme") || "system";
+        var d = t === "dark" || (t === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", d ? "dark" : "light");
+      } catch (e) {}
+    })();
+  </script>
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <header class="topbar">
+    <strong>LAZEIMS Station</strong>
+    <span id="who" class="muted"></span>
+  </header>
+  <main class="wrap">
+    <section id="status" class="card"><p>Loading…</p></section>
+
+    <section id="login" class="card" hidden>
+      <h2>Data Enterer login</h2>
+      <form id="de-form" autocomplete="off">
+        <label>Initials <input name="initials" required maxlength="10" /></label>
+        <label>PIN <input name="pin" required inputmode="numeric" type="password" /></label>
+        <button type="submit">Sign in</button>
+      </form>
+      <p id="de-msg" role="status" aria-live="polite"></p>
+    </section>
+
+    <section id="scopes" class="card" hidden>
+      <h2>Scopes</h2>
+      <div id="scope-list"></div>
+    </section>
+
+    <section id="entry" class="card" hidden>
+      <button id="back" class="link">&larr; Back to scopes</button>
+      <h2 id="entry-title"></h2>
+      <p class="muted">Enter → Save each student. 0 is valid; blank is not. Absent → leave marks blank.</p>
+      <div id="grid-wrap"></div>
+      <div class="row">
+        <button id="finalize">Finalize scope</button>
+        <span id="entry-msg" role="status" aria-live="polite"></span>
+      </div>
+    </section>
+
+    <section id="progress" class="card" hidden>
+      <h2>Progress</h2>
+      <div id="progress-body" class="muted"></div>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>

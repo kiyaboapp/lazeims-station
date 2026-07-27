@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lazeims-station"
+version = "0.1.0"
+description = "LAZEIMS offline LAN station — FastAPI + SQLite attendance/marks entry and sync. Runs on an ordinary PC with no internet."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+dependencies = [
+    "fastapi>=0.110,<1.0",
+    "uvicorn[standard]>=0.27",
+    "argon2-cffi>=23.1",
+    "itsdangerous>=2.1",
+    "python-multipart>=0.0.9",
+    "lazeims-common",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "httpx>=0.26",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["station*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+# SOFTWARE_VERSION is the station build version; it must satisfy a package's
+# software_min_version at import time (see station/migrations.py).
