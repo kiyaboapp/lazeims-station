@@ -46,7 +46,7 @@ def _seed(with_credential=True):
 
 
 def _bundle(seed=None, *, rules="1.0", software_min="1.0.0",
-            station_code="ST-1", exam_code="FTNA-2026", break_hash=False):
+            station_code="ST-1", exam_id="FTNA-2026", break_hash=False):
     seed = seed if seed is not None else _seed()
     config_hash = sha256_prefixed(seed)
     if break_hash:
@@ -55,7 +55,7 @@ def _bundle(seed=None, *, rules="1.0", software_min="1.0.0",
         "contract_version": "station-package/v1",
         "package_id": "pkg_test1", "package_version": 1,
         "rules_version": rules, "software_min_version": software_min,
-        "station_code": station_code, "exam_code": exam_code,
+        "station_code": station_code, "exam_id": exam_id,
         "configuration_hash": config_hash,
         "issued_at": "2026-07-27T08:00:00Z",
         "scope": {"schools": ["SCH-1"], "subjects": ["011"], "papers": ["THEORY1"]},
@@ -122,9 +122,9 @@ def test_import_rejects_wrong_station_after_adoption(tmp_path):
 
 def test_import_rejects_wrong_exam_after_adoption(tmp_path):
     conn = _fresh_conn(tmp_path)
-    import_package(conn, _bundle(exam_code="FTNA-2026"))
+    import_package(conn, _bundle(exam_id="FTNA-2026"))
     with pytest.raises(PackageImportError) as exc:
-        import_package(conn, _bundle(exam_code="CSEE-2026"))
+        import_package(conn, _bundle(exam_id="CSEE-2026"))
     assert exc.value.code == "CONFIGURATION_MISMATCH"
 
 

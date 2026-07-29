@@ -45,7 +45,7 @@ def _bundle():
     return {"manifest": {
         "contract_version": "station-package/v1", "package_id": "pkg_e", "package_version": 1,
         "rules_version": "1.0", "software_min_version": "1.0.0",
-        "station_code": "ST-1", "exam_code": "FTNA-2026",
+        "station_code": "ST-1", "exam_id": "FTNA-2026",
         "configuration_hash": sha256_prefixed(seed), "issued_at": "2026-07-27T08:00:00Z",
         "scope": {"schools": ["SCH-1"], "subjects": ["011"], "papers": ["THEORY1"]},
         "signature": "x",
