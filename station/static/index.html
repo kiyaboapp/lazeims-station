@@ -33,6 +33,30 @@
       <p id="de-msg" role="status" aria-live="polite"></p>
     </section>
 
+    <section id="admin-login" class="card" hidden>
+      <h2>Station admin</h2>
+      <form id="admin-form" autocomplete="off">
+        <label>Password <input name="password" type="password" required /></label>
+        <button type="submit">Sign in as admin</button>
+      </form>
+      <p id="admin-msg" role="status" aria-live="polite"></p>
+    </section>
+
+    <section id="sync" class="card" hidden>
+      <h2>Sync to Central</h2>
+      <p class="muted">Set where this station reports to, and paste the one-time station key. Then sync whenever you are online.</p>
+      <form id="sync-form" autocomplete="off">
+        <label>Central URL <input name="central_url" placeholder="address of Central (e.g. central.example)" /></label>
+        <label>Station key <input name="sync_key" type="password" placeholder="paste once" /></label>
+        <button type="submit">Save settings</button>
+      </form>
+      <div class="row">
+        <button id="sync-now">Sync now</button>
+        <span id="sync-msg" role="status" aria-live="polite"></span>
+      </div>
+      <p id="sync-state" class="muted"></p>
+    </section>
+
     <section id="scopes" class="card" hidden>
       <h2>Scopes</h2>
       <div id="scope-list"></div>

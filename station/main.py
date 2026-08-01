@@ -88,12 +88,43 @@ class ScopeIn(BaseModel):
     paper_type: PaperType
 
 
+class SyncConfigIn(BaseModel):
+    central_url: str | None = None
+    sync_key: str | None = None
+
+
 def create_app(config: StationConfig | None = None) -> FastAPI:
     cfg = config or load_config()
     # Prepare DB + schema at startup (safe to call repeatedly).
     conn = connect(cfg.db_path)
     apply_migrations(conn)
     conn.close()
+
+    # Auto-import any package(s) shipped inside station_data/import/ (this is
+    # what makes a freshly-downloaded Complete Station Bundle run ready).
+    from .auto_import import auto_import_pending
+
+    for r in auto_import_pending(cfg):
+        print(f"[auto-import] {r.get('file')}: {r.get('status')}"
+              + (f" ({r.get('students')} students)" if r.get("status") == "imported" else "")
+              + (f" — {r.get('code')}: {r.get('message')}" if r.get("status") in {"rejected", "error"} else ""))
+
+    # Seed a default Central URL from the bundle (station_data/sync.json) so the
+    # station knows where to sync; the admin still supplies the secret sync key.
+    try:
+        import json as _json
+        sync_file = cfg.data_dir / "sync.json"
+        if sync_file.is_file():
+            url = (_json.loads(sync_file.read_text() or "{}") or {}).get("central_url")
+            if url:
+                from .sync_http import seed_central_url_if_unset
+                _c = connect(cfg.db_path)
+                try:
+                    seed_central_url_if_unset(_c, url)
+                finally:
+                    _c.close()
+    except Exception as exc:  # never block boot on this
+        print(f"[sync] could not seed central_url: {exc}")
 
     sessions = SessionManager(cfg.secret_key, cfg.session_ttl_seconds)
     app = FastAPI(title="LAZEIMS Station", version=SOFTWARE_VERSION)
@@ -299,6 +330,7 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
             paper_type=payload.paper_type, finalized_by=a["assignment_id"])
         if not ok:
             raise HTTPException(409, detail={"code": "SCOPE_NOT_COMPLETE", "result": result})
+        _fire_sync()  # push the finalized scope to Central when online (best-effort)
         return {"finalized": True, "result": result}
 
     @app.get("/api/progress", tags=["entry"])
@@ -311,6 +343,64 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
             "total_marks": conn.execute("SELECT COUNT(*) c FROM total_marks").fetchone()["c"],
             "item_marks": conn.execute("SELECT COUNT(*) c FROM item_marks").fetchone()["c"],
         }
+
+    # ---------------- sync (push outbox to Central) ----------------
+
+    def _sync_once() -> dict:
+        conn = connect(cfg.db_path)
+        try:
+            from .sync_http import run_http_sync
+            return run_http_sync(conn)
+        finally:
+            conn.close()
+
+    def _fire_sync() -> None:
+        """Best-effort background sync (never blocks the caller)."""
+        import threading
+        threading.Thread(target=_sync_once, daemon=True).start()
+
+    @app.get("/api/sync/config", tags=["sync"])
+    def sync_config_get(conn=Depends(db), a=Depends(actor)):
+        from .sync_http import get_sync_config
+        return get_sync_config(conn)
+
+    @app.post("/api/sync/config", tags=["sync"])
+    def sync_config_set(payload: SyncConfigIn, conn=Depends(db), a=Depends(actor)):
+        if a["role"] != "EXAM_ADMIN":
+            raise HTTPException(403, "Only the station admin may change sync settings")
+        from .sync_http import set_sync_config
+        return set_sync_config(conn, central_url=payload.central_url, sync_key=payload.sync_key)
+
+    @app.post("/api/sync/run", tags=["sync"])
+    def sync_run(conn=Depends(db), a=Depends(actor)):
+        if a["role"] != "EXAM_ADMIN":
+            raise HTTPException(403, "Only the station admin may run a sync")
+        from .sync_http import run_http_sync
+        return run_http_sync(conn)
+
+    import os as _os
+    _autosync_secs = int((_os.environ.get("STATION_AUTOSYNC_SECONDS") or "0") or "0")
+
+    @app.on_event("startup")
+    async def _sync_startup():
+        if _autosync_secs > 0:
+            import asyncio
+
+            async def _loop():
+                while True:
+                    try:
+                        await asyncio.to_thread(_sync_once)
+                    except Exception:
+                        pass
+                    await asyncio.sleep(_autosync_secs)
+
+            app.state._autosync_task = asyncio.create_task(_loop())
+
+    @app.on_event("shutdown")
+    async def _sync_shutdown():
+        task = getattr(app.state, "_autosync_task", None)
+        if task:
+            task.cancel()
 
     @app.get("/", include_in_schema=False)
     def index():

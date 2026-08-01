@@ -40,17 +40,59 @@ async function boot() {
     : `<span class="muted">No package imported yet.</span>`;
   const me = await api("/api/me");
   if (me.ok) { SESSION = await me.json(); afterLogin(); }
-  else { show("login"); }
+  else { show("login", "admin-login"); }
 }
 function show(...ids) {
-  for (const el of ["login", "scopes", "entry", "progress"]) $(el).hidden = !ids.includes(el);
+  for (const el of ["login", "admin-login", "sync", "scopes", "entry", "progress"]) $(el).hidden = !ids.includes(el);
 }
 function afterLogin() {
-  $("who").textContent = SESSION ? `${SESSION.role}` : "";
-  show("scopes", "progress");
+  const isAdmin = SESSION && SESSION.role === "EXAM_ADMIN";
+  $("who").textContent = SESSION ? SESSION.role : "";
+  if (isAdmin) show("scopes", "progress", "sync"); else show("scopes", "progress");
   loadScopes();
   loadProgress();
+  if (isAdmin) loadSyncConfig();
 }
+
+$("admin-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  $("admin-msg").textContent = "Signing in…";
+  const r = await jpost("/api/login/admin", { password: f.password.value });
+  if (r.ok) { SESSION = await r.json(); afterLogin(); }
+  else $("admin-msg").textContent = "Invalid password.";
+});
+
+async function loadSyncConfig() {
+  try {
+    const c = await (await api("/api/sync/config")).json();
+    $("sync-form").central_url.value = c.central_url || "";
+    $("sync-state").textContent = c.configured
+      ? "Configured — ready to sync."
+      : (c.central_url ? "Central URL set; paste the station key to enable sync." : "Not configured yet.");
+  } catch (e) { /* not admin / offline */ }
+}
+
+$("sync-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  $("sync-msg").textContent = "Saving…";
+  const body = { central_url: f.central_url.value.trim() };
+  if (f.sync_key.value.trim()) body.sync_key = f.sync_key.value.trim();
+  const r = await jpost("/api/sync/config", body);
+  if (r.ok) { f.sync_key.value = ""; $("sync-msg").textContent = "Saved ✓"; loadSyncConfig(); }
+  else $("sync-msg").textContent = "Only the station admin may change sync settings.";
+});
+
+$("sync-now").addEventListener("click", async () => {
+  $("sync-msg").textContent = "Syncing…";
+  const r = await jpost("/api/sync/run", {});
+  const d = await r.json();
+  if (!d.configured) { $("sync-msg").textContent = "Configure Central URL + key first."; return; }
+  if (d.error) { $("sync-msg").textContent = "Offline or unreachable — will resume later."; return; }
+  $("sync-msg").textContent = `Sent ${d.sent ?? 0}: accepted ${d.accepted ?? 0}, duplicates ${d.duplicates ?? 0}, rejected ${d.rejected ?? 0}.`;
+  loadProgress();
+});
 
 $("de-form").addEventListener("submit", async (e) => {
   e.preventDefault();
