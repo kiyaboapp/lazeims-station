@@ -600,6 +600,15 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
         log.warning("[SYNC-DEBUG] run_http_sync result=%r", result)
         return result
 
+    @app.post("/api/sync/retry-rejected", tags=["sync"])
+    def sync_retry_rejected(conn=Depends(db), a=Depends(actor)):
+        if a["role"] != "EXAM_ADMIN":
+            raise HTTPException(403, "Only the station admin may retry rejected events")
+        from .db import transaction
+        with transaction(conn):
+            count = outbox.retry_rejected(conn)
+        return {"queued": count}
+
     # ---------------- admin: user management ----------------
 
     @app.get("/api/admin/users", tags=["admin"])

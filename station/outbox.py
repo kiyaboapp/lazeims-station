@@ -64,3 +64,15 @@ def rejected_count(conn: sqlite3.Connection) -> int:
     return int(conn.execute(
         "SELECT COUNT(*) c FROM outbox_events WHERE status = 'REJECTED'"
     ).fetchone()["c"])
+
+
+def retry_rejected(conn: sqlite3.Connection) -> int:
+    """Reset all REJECTED events back to PENDING so the next sync re-sends them.
+
+    Returns the number of events queued for retry.
+    """
+    cur = conn.execute(
+        "UPDATE outbox_events SET status='PENDING', last_error=NULL"
+        " WHERE status='REJECTED'"
+    )
+    return cur.rowcount

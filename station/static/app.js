@@ -582,7 +582,35 @@ async function loadSyncConfig(){
       }
     }
   }catch(e){}
+  // Show retry button when there are rejected events
+  try{
+    const s=await(await api('/api/status')).json();
+    const btn=$('retry-rejected-btn');
+    if(btn){
+      if((s.rejected_events||0)>0){
+        btn.hidden=false;
+        btn.textContent='';
+        btn.innerHTML=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.36"/></svg>Retry ${s.rejected_events} rejected`;
+      } else {
+        btn.hidden=true;
+      }
+    }
+  }catch(e){}
 }
+
+$('retry-rejected-btn').addEventListener('click',async()=>{
+  setMsg('sync-msg','Resetting rejected events…',false);
+  $('sync-result').textContent='';
+  const r=await jpost('/api/sync/retry-rejected',{});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok){
+    setMsg('sync-msg',d.detail||'Failed.',true);
+    return;
+  }
+  setMsg('sync-msg','',false);
+  $('sync-result').textContent=`${d.queued} event(s) queued for retry — press Sync now to send.`;
+  loadSyncConfig();
+});
 
 $('save-url-btn').addEventListener('click',async()=>{
   const url=($('central-url-input').value||'').trim();
