@@ -1,10 +1,11 @@
 """Local station authentication.
 
-* Data Enterer logs in with PIN + initials.
-* Station Exam Admin logs in with username(assignment)+ password.
+* Data Enterer: initials + PIN.
+* Station Exam Admin: full username + password.
+
 Only salted Argon2 hashes are stored (shipped in the package). Sessions are
-signed tokens (itsdangerous) bound server-side; role/scope derive from the
-station_users row, never from the client.
+signed tokens (itsdangerous); role/scope always derive from the local database
+row on every request, never from client input.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from __future__ import annotations
 import sqlite3
 
 from argon2 import PasswordHasher
-from argon2.exceptions import VerifyMismatchError, VerificationError, InvalidHashError
+from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
 _ph = PasswordHasher()
@@ -28,7 +29,6 @@ def _verify(hashed: str | None, plaintext: str) -> bool:
 
 
 def authenticate_de(conn: sqlite3.Connection, pin: str, initials: str) -> dict | None:
-    """Return the station_user row (as dict) for a matching DE PIN+initials."""
     rows = conn.execute(
         "SELECT * FROM station_users WHERE role = 'DATA_ENTERER' AND active = 1 AND initials = ?",
         (initials,),
@@ -39,15 +39,42 @@ def authenticate_de(conn: sqlite3.Connection, pin: str, initials: str) -> dict |
     return None
 
 
-def authenticate_admin(conn: sqlite3.Connection, password: str) -> dict | None:
-    """Return the station_user row for a matching station EXAM_ADMIN password."""
+def authenticate_admin(conn: sqlite3.Connection, username: str, password: str) -> dict | None:
+    """Match against the dedicated ``admin_username`` column."""
     rows = conn.execute(
-        "SELECT * FROM station_users WHERE role = 'EXAM_ADMIN' AND active = 1",
+        "SELECT * FROM station_users WHERE role = 'EXAM_ADMIN' AND active = 1"
+        " AND (admin_username = ? OR initials = ?)",
+        (username, username),
     ).fetchall()
     for row in rows:
         if _verify(row["password_hash"], password):
             return dict(row)
     return None
+
+
+def de_scopes_for(conn: sqlite3.Connection, assignment_id: int) -> dict:
+    """Return the DE's allowed centres and subjects.
+
+    A missing row means the DE has no restriction on that dimension.
+    """
+    rows = conn.execute(
+        "SELECT centre_number, subject_code FROM user_scopes WHERE assignment_id = ?",
+        (assignment_id,),
+    ).fetchall()
+    centres: set[str] = set()
+    subjects: set[str] = set()
+    for r in rows:
+        if r["centre_number"]:
+            centres.add(r["centre_number"])
+        if r["subject_code"]:
+            subjects.add(r["subject_code"])
+    return {"centres": centres, "subjects": subjects}
+
+
+def is_scope_allowed(scopes: dict, *, centre_number: str, subject_code: str) -> bool:
+    ok_centre = not scopes["centres"] or centre_number in scopes["centres"]
+    ok_subject = not scopes["subjects"] or subject_code in scopes["subjects"]
+    return ok_centre and ok_subject
 
 
 class SessionManager:

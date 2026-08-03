@@ -27,9 +27,13 @@ class PackageImportError(Exception):
         super().__init__(f"{code}: {message}")
 
 
-# --- schema v1 DDL ---
-_SCHEMA_V1 = """
-CREATE TABLE IF NOT EXISTS station_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+# --- schema baseline ---
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS station_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT
+);
 
 CREATE TABLE IF NOT EXISTS packages (
     package_id TEXT PRIMARY KEY, exam_id TEXT NOT NULL, station_code TEXT NOT NULL,
@@ -38,8 +42,32 @@ CREATE TABLE IF NOT EXISTS packages (
 );
 
 CREATE TABLE IF NOT EXISTS station_users (
-    id INTEGER PRIMARY KEY, assignment_id INTEGER NOT NULL, role TEXT NOT NULL,
-    pin_hash TEXT, initials TEXT, password_hash TEXT, active INTEGER NOT NULL DEFAULT 1
+    id INTEGER PRIMARY KEY,
+    assignment_id INTEGER NOT NULL UNIQUE,
+    role TEXT NOT NULL,
+    pin_hash TEXT,
+    initials TEXT,
+    password_hash TEXT,
+    admin_username TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    first_name TEXT,
+    middle_name TEXT,
+    surname TEXT,
+    phone TEXT
+);
+
+CREATE TABLE IF NOT EXISTS user_scopes (
+    id INTEGER PRIMARY KEY,
+    assignment_id INTEGER NOT NULL,
+    centre_number TEXT,
+    subject_code TEXT,
+    UNIQUE(assignment_id, centre_number, subject_code)
+);
+
+CREATE TABLE IF NOT EXISTS machine_credentials (
+    credential_id TEXT PRIMARY KEY,
+    package_id TEXT NOT NULL,
+    stored_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS schools (centre_number TEXT PRIMARY KEY, name TEXT NOT NULL);
@@ -117,7 +145,8 @@ CREATE TABLE IF NOT EXISTS outbox_events (
     natural_key_json TEXT NOT NULL, value_json TEXT, local_version INTEGER NOT NULL,
     actor_assignment_id INTEGER, occurred_at TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'PENDING', attempts INTEGER NOT NULL DEFAULT 0,
-    last_error TEXT, ack_at TEXT
+    last_error TEXT, ack_at TEXT,
+    priority INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -125,47 +154,29 @@ CREATE TABLE IF NOT EXISTS audit_log (
     entity_id TEXT, before_json TEXT, after_json TEXT, occurred_at TEXT NOT NULL
 );
 """
-
-
-# v1 -> v2 additive migration (columns only; never drops marks/outbox).
-_MIGRATE_V2 = """
-ALTER TABLE outbox_events ADD COLUMN priority INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE station_meta ADD COLUMN updated_at TEXT;
-"""
-
-
 def apply_migrations(conn: sqlite3.Connection, *, backup_before_upgrade: str | None = None) -> int:
     """Bring the DB up to SCHEMA_VERSION. Returns the resulting version.
 
-    Upgrades are explicit and ADDITIVE — they never drop marks/outbox data. If
-    ``backup_before_upgrade`` (a directory) is given and an upgrade of an
-    existing populated DB is required, a snapshot is taken first.
+    Fresh install: create the full baseline schema. Reject any newer
+    ``user_version`` (means the DB came from a later build).
     """
     version = get_user_version(conn)
 
-    # Fresh database: create the full current schema in one shot.
     if version < 1:
-        conn.executescript(_SCHEMA_V1)
+        conn.executescript(_SCHEMA)
         set_user_version(conn, 1)
         version = 1
 
-    # Existing DB needing an upgrade: back up first (never risk marks/outbox).
-    if version < SCHEMA_VERSION and backup_before_upgrade:
-        from .backup import backup_database
-        # Only back up if there is real data (avoid noise on fresh installs).
-        has_data = conn.execute("SELECT COUNT(*) FROM outbox_events").fetchone()[0] > 0
-        if has_data:
-            db_file = conn.execute("PRAGMA database_list").fetchone()[2]
-            if db_file:
-                backup_database(db_file, backup_before_upgrade)
+    # Idempotent column additions for existing DBs (SQLite has no IF NOT EXISTS on ADD COLUMN)
+    for col in ("first_name TEXT", "middle_name TEXT", "surname TEXT", "phone TEXT"):
+        col_name = col.split()[0]
+        try:
+            conn.execute(f"ALTER TABLE station_users ADD COLUMN {col}")
+            conn.commit()
+        except Exception:
+            pass  # column already exists
 
-    # v1 -> v2: additive columns only (data preserved).
-    if version < 2:
-        conn.executescript(_MIGRATE_V2)
-        set_user_version(conn, 2)
-        version = 2
-
-    if version != SCHEMA_VERSION:
+    if version > SCHEMA_VERSION:
         raise PackageImportError(
             "UPGRADE_REQUIRED",
             f"Local schema version {version} is newer than this build ({SCHEMA_VERSION}).",
@@ -293,13 +304,52 @@ def import_package(conn: sqlite3.Connection, bundle: dict) -> dict:
                 "INSERT OR REPLACE INTO student_subjects(student_id, subject_code) VALUES(?,?)",
                 (r["student_id"], r["subject_code"]),
             )
-        # credentials (hashes only)
+        # credentials (hashes only) — upsert by assignment_id so re-imports do
+        # not duplicate the same person.
         for c in seed.get("credentials", []):
             conn.execute(
-                "INSERT INTO station_users(assignment_id, role, pin_hash, initials, password_hash, active)"
-                " VALUES(?,?,?,?,?,1)",
-                (c["assignment_id"], c["role"], c.get("pin_hash"),
-                 c.get("initials"), c.get("password_hash")),
+                "INSERT INTO station_users(assignment_id, role, pin_hash, initials,"
+                " password_hash, admin_username, active) VALUES(?,?,?,?,?,?,1)"
+                " ON CONFLICT(assignment_id) DO UPDATE SET"
+                "   role = excluded.role,"
+                "   pin_hash = COALESCE(excluded.pin_hash, station_users.pin_hash),"
+                "   initials = COALESCE(excluded.initials, station_users.initials),"
+                "   password_hash = COALESCE(excluded.password_hash, station_users.password_hash),"
+                "   admin_username = COALESCE(excluded.admin_username, station_users.admin_username),"
+                "   active = 1",
+                (c["assignment_id"], c["role"], c.get("pin_hash"), c.get("initials"),
+                 c.get("password_hash"), c.get("admin_username")),
+            )
+
+        # Data enterer scopes: replace-per-assignment so package updates take
+        # effect immediately without leaking stale scopes.
+        for de in manifest.get("data_enterers", []) or []:
+            aid = de.get("assignment_id")
+            if aid is None:
+                continue
+            conn.execute("DELETE FROM user_scopes WHERE assignment_id = ?", (aid,))
+            for cn in de.get("school_centre_numbers") or []:
+                conn.execute(
+                    "INSERT OR IGNORE INTO user_scopes(assignment_id, centre_number, subject_code)"
+                    " VALUES(?,?,NULL)",
+                    (aid, cn),
+                )
+            for sc in de.get("subject_codes") or []:
+                conn.execute(
+                    "INSERT OR IGNORE INTO user_scopes(assignment_id, centre_number, subject_code)"
+                    " VALUES(?,NULL,?)",
+                    (aid, sc),
+                )
+
+        # Machine credential bookkeeping (only the credential_id + package
+        # linkage is stored here; the plaintext secret lives in protected
+        # local storage, see machine_credential.py).
+        mc_meta = manifest.get("machine_credential") or {}
+        if mc_meta.get("credential_id"):
+            conn.execute(
+                "INSERT OR REPLACE INTO machine_credentials(credential_id, package_id, stored_at)"
+                " VALUES(?,?,?)",
+                (mc_meta["credential_id"], manifest["package_id"], now),
             )
 
     return {

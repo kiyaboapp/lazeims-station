@@ -1,17 +1,12 @@
-"""HTTP sync transport + configuration for pushing the station outbox to Central.
+"""HTTP sync transport using the package-bound machine credential.
 
-The station's ``sync.run_sync`` is transport-agnostic: it takes a callable
-``(request_dict) -> response_dict``. Here we provide the production transport —
-a plain stdlib HTTPS POST to Central's machine-authenticated endpoint
-``POST {central_url}/api/v1/station/sync/events`` with the station's one-time
-``X-Station-Key``. No third-party HTTP dependency is needed.
+Central authenticates each sync request via ``X-Package-Credential-Id`` and
+``X-Package-Secret``. The Station reads the secret from protected local
+storage (see :mod:`station.machine_credential`) so the operator never pastes
+any key into the UI.
 
-Config (Central URL + sync key) lives in the local ``station_meta`` table:
-  * ``central_url``  — where to sync (may be seeded from the bundle's sync.json);
-  * ``sync_key``     — the station's secret machine key (entered once by admin).
-
-The key is stored locally so the offline station can sync whenever it is back
-online; it is never shipped inside a downloadable package.
+Central URL is either configured by the admin or seeded from the package's
+``central_base_url`` field at import time.
 """
 
 from __future__ import annotations
@@ -22,6 +17,7 @@ import urllib.error
 import urllib.request
 from typing import Callable
 
+from . import machine_credential
 from .db import transaction
 from .sync import run_sync
 
@@ -42,59 +38,104 @@ def _meta_set(conn: sqlite3.Connection, key: str, value: str) -> None:
 
 
 def get_sync_config(conn: sqlite3.Connection) -> dict:
-    """Non-secret view of the sync configuration (never returns the key)."""
+    """Non-secret view of the sync configuration."""
+    station_code = _meta_get(conn, "station_code")
+    exam_id = _meta_get(conn, "exam_id")
     central_url = _meta_get(conn, "central_url")
+    has_credential = False
+    if station_code and exam_id:
+        has_credential = machine_credential.load(station_code, exam_id) is not None
     return {
         "central_url": central_url,
-        "has_key": _meta_get(conn, "sync_key") is not None,
-        "configured": bool(central_url) and _meta_get(conn, "sync_key") is not None,
+        "has_credential": has_credential,
+        "configured": bool(central_url) and has_credential,
     }
 
 
-def set_sync_config(
-    conn: sqlite3.Connection, *, central_url: str | None = None, sync_key: str | None = None
-) -> dict:
+def set_sync_config(conn: sqlite3.Connection, *, central_url: str | None = None) -> dict:
+    """Admin can override the Central URL; the machine credential is never
+    pasted — it comes from the imported package."""
     with transaction(conn):
         if central_url is not None:
             _meta_set(conn, "central_url", central_url.strip().rstrip("/"))
-        if sync_key is not None and sync_key.strip():
-            _meta_set(conn, "sync_key", sync_key.strip())
     return get_sync_config(conn)
 
 
 def seed_central_url_if_unset(conn: sqlite3.Connection, central_url: str) -> None:
-    """Set a default Central URL only when the admin has not chosen one."""
     if central_url and not _meta_get(conn, "central_url"):
         with transaction(conn):
             _meta_set(conn, "central_url", central_url.strip().rstrip("/"))
 
 
-def http_transport(central_url: str, sync_key: str) -> Callable[[dict], dict]:
+def seed_central_url_from_package(conn: sqlite3.Connection, central_url: str) -> None:
+    """Always write the Central URL that comes from an imported package.
+
+    Unlike :func:`seed_central_url_if_unset` (used at boot to avoid clobbering
+    an admin override), this is called during a package import where the
+    package is the authoritative source for the URL. It will overwrite a
+    stale/wrong URL so sync works immediately after importing a new bundle.
+    """
+    if central_url and central_url.strip():
+        with transaction(conn):
+            _meta_set(conn, "central_url", central_url.strip().rstrip("/"))
+
+
+def http_transport(central_url: str, credential_id: str, secret: str) -> Callable[[dict], dict]:
     endpoint = central_url.rstrip("/") + SYNC_PATH
 
     def _transport(body: dict) -> dict:
         data = json.dumps(body).encode("utf-8")
         req = urllib.request.Request(
-            endpoint, data=data, method="POST",
-            headers={"Content-Type": "application/json", "X-Station-Key": sync_key},
+            endpoint,
+            data=data,
+            method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "X-Package-Credential-Id": credential_id,
+                "X-Package-Secret": secret,
+            },
         )
-        with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310 (trusted, operator-set URL)
-            return json.loads(resp.read().decode("utf-8"))
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
+                return json.loads(resp.read().decode("utf-8") or "{}")
+        except urllib.error.HTTPError as exc:
+            payload = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
+            raise RuntimeError(f"sync HTTP {exc.code}: {payload}") from exc
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"sync network error: {exc.reason}") from exc
 
     return _transport
 
 
 def run_http_sync(conn: sqlite3.Connection) -> dict:
-    """Run one sync pass over HTTP. Returns the run summary, or a not-configured
-    / error marker (never raises for the caller)."""
+    """Push pending events to Central using the package-bound credential."""
+    import logging
+    log = logging.getLogger("station.sync")
+
     central_url = _meta_get(conn, "central_url")
-    sync_key = _meta_get(conn, "sync_key")
-    if not central_url or not sync_key:
-        return {"configured": False, "sent": 0, "message": "Sync is not configured yet."}
+    station_code = _meta_get(conn, "station_code")
+    exam_id = _meta_get(conn, "exam_id")
+    log.warning("[run_http_sync] central_url=%r  station_code=%r  exam_id=%r",
+                central_url, station_code, exam_id)
+
+    if not central_url or not station_code or not exam_id:
+        msg = f"missing: central_url={central_url!r} station_code={station_code!r} exam_id={exam_id!r}"
+        log.warning("[run_http_sync] NOT CONFIGURED — %s", msg)
+        return {"configured": False, "reason": f"Central URL not configured or station not adopted ({msg})"}
+
+    cred = machine_credential.load(station_code, exam_id)
+    log.warning("[run_http_sync] credential=%r", cred)
+    if not cred:
+        from . import paths
+        cred_path = paths.machine_credential_path(station_code, exam_id)
+        log.warning("[run_http_sync] NO CREDENTIAL — looked at path=%r  exists=%r", str(cred_path), cred_path.exists())
+        return {"configured": False, "reason": f"No package machine credential found (looked at {cred_path})"}
+
+    transport = http_transport(central_url, cred["credential_id"], cred["secret"])
     try:
-        summary = run_sync(conn, http_transport(central_url, sync_key))
-    except urllib.error.HTTPError as exc:
-        return {"configured": True, "error": f"HTTP {exc.code}", "resumable": True}
-    except Exception as exc:  # offline / DNS / refused — resume next time
-        return {"configured": True, "error": str(exc), "resumable": True}
-    return {"configured": True, **summary}
+        result = run_sync(conn, transport)
+        log.warning("[run_http_sync] run_sync result=%r", result)
+        return result
+    except RuntimeError as exc:
+        log.warning("[run_http_sync] RuntimeError: %s", exc)
+        return {"configured": True, "error": str(exc)}

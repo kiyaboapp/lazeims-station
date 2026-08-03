@@ -1,0 +1,14 @@
+# requirements.lock — pinned dependencies for the offline Station.
+#
+# In development we use plain pinned versions. When a formal release is cut
+# these will be regenerated with ``pip-compile --generate-hashes`` and the
+# setup launcher will install with ``--require-hashes``.
+
+fastapi==0.115.0
+uvicorn==0.30.6
+argon2-cffi==23.1.0
+itsdangerous==2.2.0
+python-multipart==0.0.9
+pydantic==2.9.2
+cryptography==43.0.1
+qrcode==8.0

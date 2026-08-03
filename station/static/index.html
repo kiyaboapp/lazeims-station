@@ -1,83 +1,325 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="system">
+<html lang="en" data-theme="light">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>LAZEIMS Station</title>
-  <script>
-    (function () {
-      try {
-        var t = localStorage.getItem("theme") || "system";
-        var d = t === "dark" || (t === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
-        document.documentElement.setAttribute("data-theme", d ? "dark" : "light");
-      } catch (e) {}
-    })();
-  </script>
-  <link rel="stylesheet" href="/static/app.css" />
+  <script>(function(){try{var t=localStorage.getItem('theme')||'system';document.documentElement.setAttribute('data-theme',(t==='dark'||(t==='system'&&matchMedia('(prefers-color-scheme:dark)').matches))?'dark':'light');}catch(e){}})();</script>
+  <link rel="stylesheet" href="/static/app.css"/>
 </head>
 <body>
-  <header class="topbar">
-    <strong>LAZEIMS Station</strong>
-    <span id="who" class="muted"></span>
-  </header>
-  <main class="wrap">
-    <section id="status" class="card"><p>Loading…</p></section>
 
-    <section id="login" class="card" hidden>
-      <h2>Data Enterer login</h2>
-      <form id="de-form" autocomplete="off">
-        <label>Initials <input name="initials" required maxlength="10" /></label>
-        <label>PIN <input name="pin" required inputmode="numeric" type="password" /></label>
-        <button type="submit">Sign in</button>
-      </form>
-      <p id="de-msg" role="status" aria-live="polite"></p>
-    </section>
+<header class="topbar">
+  <div class="topbar-left">
+    <button id="sidebar-toggle" class="icon-btn" aria-label="Menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+      <span>LAZEIMS Station</span>
+    </div>
+    <span id="status-pill" class="pill pill-idle">Loading…</span>
+  </div>
+  <div class="topbar-right">
+    <span id="who-label" class="who-label"></span>
+    <button id="theme-btn" class="icon-btn" title="Toggle theme">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+    </button>
+    <button id="logout-btn" class="btn-ghost btn-sm" hidden>Sign out</button>
+  </div>
+</header>
 
-    <section id="admin-login" class="card" hidden>
-      <h2>Station admin</h2>
-      <form id="admin-form" autocomplete="off">
-        <label>Password <input name="password" type="password" required /></label>
-        <button type="submit">Sign in as admin</button>
-      </form>
-      <p id="admin-msg" role="status" aria-live="polite"></p>
-    </section>
+<div class="app-shell">
 
-    <section id="sync" class="card" hidden>
-      <h2>Sync to Central</h2>
-      <p class="muted">Set where this station reports to, and paste the one-time station key. Then sync whenever you are online.</p>
-      <form id="sync-form" autocomplete="off">
-        <label>Central URL <input name="central_url" placeholder="address of Central (e.g. central.example)" /></label>
-        <label>Station key <input name="sync_key" type="password" placeholder="paste once" /></label>
-        <button type="submit">Save settings</button>
-      </form>
-      <div class="row">
-        <button id="sync-now">Sync now</button>
-        <span id="sync-msg" role="status" aria-live="polite"></span>
+  <!-- SIDEBAR -->
+  <nav class="sidebar" id="sidebar" hidden>
+    <button class="nav-item" data-view="dashboard">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+      <span>Dashboard</span>
+    </button>
+    <button class="nav-item" data-view="schools">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      <span>Schools</span>
+    </button>
+    <button class="nav-item" data-view="scopes">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      <span>Scopes</span>
+    </button>
+    <button class="nav-item admin-only" data-view="users" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <span>Users</span>
+    </button>
+    <button class="nav-item admin-only" data-view="settings" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      <span>Sync / Settings</span>
+    </button>
+    <div class="nav-divider"></div>
+    <button class="nav-item nav-entry" data-view="entry-portal">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      <span>Enter Marks</span>
+    </button>
+
+    <!-- Sidebar profile -->
+    <div class="sidebar-profile" id="sidebar-profile" hidden>
+      <div class="sp-avatar" id="sp-avatar">?</div>
+      <div class="sp-info">
+        <div class="sp-name" id="sp-name">—</div>
+        <div class="sp-role" id="sp-role">—</div>
       </div>
-      <p id="sync-state" class="muted"></p>
-    </section>
+    </div>
+  </nav>
 
-    <section id="scopes" class="card" hidden>
-      <h2>Scopes</h2>
-      <div id="scope-list"></div>
-    </section>
+  <!-- Mobile overlay (closes sidebar on tap outside) -->
+  <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
-    <section id="entry" class="card" hidden>
-      <button id="back" class="link">&larr; Back to scopes</button>
-      <h2 id="entry-title"></h2>
-      <p class="muted">Enter → Save each student. 0 is valid; blank is not. Absent → leave marks blank.</p>
-      <div id="grid-wrap"></div>
-      <div class="row">
-        <button id="finalize">Finalize scope</button>
-        <span id="entry-msg" role="status" aria-live="polite"></span>
+  <main class="main-area" id="main-area">
+
+    <!-- ── LOGIN ──────────────────────────────────────────────────── -->
+    <section id="view-login" class="view login-view active">
+      <div class="login-card">
+        <div class="login-logo">
+          <svg viewBox="0 0 56 56" fill="none"><rect x="4" y="8" width="48" height="32" rx="4" stroke="currentColor" stroke-width="2.5"/><path d="M20 48h16M28 40v8" stroke="currentColor" stroke-width="2.5"/><path d="M16 22h6M16 30h10M28 22l5 8 5-8" stroke="currentColor" stroke-width="2"/></svg>
+        </div>
+        <h1>LAZEIMS Station</h1>
+        <p class="login-hint">Data Enterer: initials + PIN &nbsp;·&nbsp; Admin: username + password</p>
+        <form id="login-form" autocomplete="off">
+          <div class="field"><label>Initials or Username</label>
+            <input id="login-id" required autocomplete="username" placeholder="e.g. AB or MWANZA-2"/>
+          </div>
+          <div class="field"><label>PIN or Password</label>
+            <input id="login-secret" type="password" required autocomplete="current-password" placeholder="••••"/>
+          </div>
+          <button type="submit" class="btn-primary btn-full">Sign in</button>
+        </form>
+        <p id="login-msg" class="form-msg" role="status" aria-live="polite"></p>
       </div>
     </section>
 
-    <section id="progress" class="card" hidden>
-      <h2>Progress</h2>
-      <div id="progress-body" class="muted"></div>
+    <!-- ── DASHBOARD ──────────────────────────────────────────────── -->
+    <section id="view-dashboard" class="view" hidden>
+      <div class="view-header">
+        <div><h2>Dashboard</h2><p class="view-sub" id="dash-sub">—</p></div>
+        <button id="dash-refresh" class="btn-ghost btn-sm icn-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.36"/></svg>Refresh
+        </button>
+      </div>
+      <div id="dash-kpis" class="kpi-grid"></div>
+      <div class="dash-grid">
+        <div>
+          <h3 class="sect-title">Today's Activity</h3>
+          <div id="dash-today" class="info-card"></div>
+        </div>
+        <div>
+          <h3 class="sect-title">Sync Status</h3>
+          <div id="dash-sync" class="info-card"></div>
+        </div>
+        <div id="dash-my-progress-wrap" hidden>
+          <h3 class="sect-title">My Progress</h3>
+          <div id="dash-my-progress" class="info-card"></div>
+        </div>
+      </div>
+      <h3 class="sect-title" style="margin-top:28px">Schools at a glance</h3>
+      <div id="dash-school-grid" class="school-chip-grid"></div>
     </section>
+
+    <!-- ── SCHOOLS ────────────────────────────────────────────────── -->
+    <section id="view-schools" class="view" hidden>
+      <div class="view-header">
+        <div><h2>Schools</h2><p class="view-sub" id="schools-sub"></p></div>
+        <input id="school-search" class="search-box" type="search" placeholder="Search by centre number or name…"/>
+      </div>
+      <div id="schools-list"></div>
+    </section>
+
+    <!-- ── SCOPES ─────────────────────────────────────────────────── -->
+    <section id="view-scopes" class="view" hidden>
+      <div class="view-header">
+        <div><h2>All Scopes</h2><p class="view-sub" id="scopes-sub"></p></div>
+        <div class="chip-row" id="scopes-chips">
+          <button class="chip active" data-f="all">All</button>
+          <button class="chip" data-f="open">Open</button>
+          <button class="chip" data-f="locked">In use</button>
+          <button class="chip" data-f="finalized">Finalized</button>
+        </div>
+      </div>
+      <div id="scopes-list"></div>
+    </section>
+
+    <!-- ── USERS ──────────────────────────────────────────────────── -->
+    <section id="view-users" class="view admin-only" hidden>
+      <div class="view-header">
+        <div><h2>Users &amp; Assignments</h2><p class="view-sub">Data Enterers, their progress and scope assignments</p></div>
+        <button id="open-create-user" class="btn-primary btn-sm icn-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>New account
+        </button>
+      </div>
+      <div id="create-user-panel" class="inline-panel" hidden>
+        <h3>Create Data Enterer</h3>
+        <form id="create-user-form">
+          <div class="form-row">
+            <div class="field"><label>First Name</label><input id="new-first-name" placeholder="JOHN" /></div>
+            <div class="field"><label>Middle Name <span class="label-hint">(optional)</span></label><input id="new-middle-name" placeholder="PAUL" /></div>
+          </div>
+          <div class="form-row">
+            <div class="field"><label>Surname</label><input id="new-surname" placeholder="MWANZA" /></div>
+            <div class="field"><label>Phone <span class="label-hint">(optional)</span></label><input id="new-phone" type="tel" placeholder="+255 7xx xxx xxx" /></div>
+          </div>
+          <div class="form-row">
+            <div class="field"><label>Initials</label><input id="new-initials" placeholder="AB" maxlength="6"/></div>
+            <div class="field"><label>PIN (min 4)</label><input id="new-pin" type="password" placeholder="••••" minlength="4"/></div>
+          </div>
+          <div class="field">
+            <label>Assign Scopes <span class="label-hint">(School + Subject + Paper — leave blank for all)</span></label>
+            <div class="scope-assign-row">
+              <select id="new-scope-school" class="sel-field"><option value="">All schools</option></select>
+              <select id="new-scope-subject" class="sel-field"><option value="">All subjects</option></select>
+              <select id="new-scope-paper" class="sel-field">
+                <option value="">All papers</option>
+                <option value="THEORY1">Theory 1</option>
+                <option value="THEORY2">Theory 2</option>
+                <option value="PRACTICAL">Practical</option>
+              </select>
+              <button type="button" id="add-scope-btn" class="btn-secondary btn-sm">Add</button>
+            </div>
+            <div id="assigned-scopes-list" class="assigned-scopes"></div>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn-primary btn-sm">Create account</button>
+            <button type="button" id="cancel-create-user" class="btn-ghost btn-sm">Cancel</button>
+          </div>
+        </form>
+        <p id="create-user-msg" class="form-msg" role="status"></p>
+      </div>
+      <div id="users-list"></div>
+    </section>
+
+    <!-- ── SETTINGS / SYNC ────────────────────────────────────────── -->
+    <section id="view-settings" class="view admin-only" hidden>
+      <div class="view-header"><h2>Sync &amp; Settings</h2></div>
+      <div class="settings-cols">
+
+        <div class="settings-card">
+          <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.36"/></svg>Sync to Central</h3>
+          <div id="sync-banner" class="sync-banner"></div>
+          <div class="field"><label>Central URL</label>
+            <div class="input-row">
+              <input id="central-url-input" placeholder="http://lazeims.online:10048"/>
+              <button id="save-url-btn" class="btn-secondary btn-sm">Save</button>
+            </div>
+          </div>
+          <div class="btn-row" style="margin-top:12px">
+            <button id="sync-now-btn" class="btn-primary btn-sm icn-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.36"/></svg>Sync now
+            </button>
+            <span id="sync-result" class="muted small"></span>
+          </div>
+          <p id="sync-msg" class="form-msg" role="status"></p>
+        </div>
+
+        <div class="settings-card">
+          <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Import Exam Package</h3>
+          <p class="muted small" style="margin-bottom:12px">Import a signed .zip from Central. Sets the sync URL and credential automatically.</p>
+          <form id="import-form">
+            <input id="import-file" type="file" accept=".zip,application/zip"/>
+            <button type="submit" class="btn-secondary btn-sm" style="margin-top:8px">Import .zip</button>
+          </form>
+          <p id="import-msg" class="form-msg" role="status"></p>
+        </div>
+
+        <div class="settings-card">
+          <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>Station Info</h3>
+          <div id="station-info-list" class="info-rows"></div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ── ENTRY PORTAL ───────────────────────────────────────────── -->
+    <section id="view-entry-portal" class="view" hidden>
+      <div class="view-header">
+        <div><h2>Enter Marks</h2><p class="view-sub">Select a scope to begin</p></div>
+        <div class="chip-row" id="portal-chips">
+          <button class="chip active" data-f="all">All</button>
+          <button class="chip" data-f="open">Open</button>
+          <button class="chip" data-f="finalized">Finalized</button>
+        </div>
+      </div>
+      <div id="portal-scope-list"></div>
+    </section>
+
+    <!-- ── DATA ENTRY ─────────────────────────────────────────────── -->
+    <section id="view-entry" class="view" hidden>
+      <div class="entry-bar">
+        <button id="entry-back" class="btn-ghost btn-sm icn-btn back-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>Back
+        </button>
+        <div class="entry-meta">
+          <h2 id="entry-title"></h2>
+          <span id="entry-sub" class="muted small"></span>
+        </div>
+        <div id="entry-statusbar" class="entry-statusbar"></div>
+        <button id="finalize-btn" class="btn-warning btn-sm">Finalize scope</button>
+      </div>
+      <p id="entry-msg" class="form-msg" role="status" aria-live="polite" style="margin:0 0 8px"></p>
+
+      <div class="tab-bar">
+        <button class="tab active" data-tab="attendance">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>Attendance (ISAL)
+        </button>
+        <button class="tab" data-tab="marks">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>Marks
+        </button>
+      </div>
+
+      <div id="tab-attendance">
+        <div class="tbl-toolbar">
+          <button id="mark-all-present" class="btn-secondary btn-sm">Mark all present</button>
+          <span id="att-summary" class="muted small"></span>
+          <span id="att-absent-hint" class="muted small"></span>
+        </div>
+        <div class="roster-wrap">
+          <table class="roster-tbl">
+            <thead><tr><th class="col-n">#</th><th>Student ID</th><th>Name</th><th class="col-att">Attendance</th></tr></thead>
+            <tbody id="att-tbody"></tbody>
+          </table>
+        </div>
+        <div class="marks-savebar">
+          <div id="att-validation" class="marks-validation" hidden></div>
+          <div class="marks-savebar-row">
+            <span class="muted small">Every toggle already saves itself, but click this to confirm every student — present or absent — is actually persisted before you move to Marks.</span>
+            <button id="save-attendance" class="btn-save-continue">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="15" height="15"><polyline points="20 6 9 17 4 12"/></svg>
+              Save &amp; continue to Marks
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-marks" hidden>
+        <div class="tbl-toolbar">
+          <span id="marks-summary" class="muted small"></span>
+          <span id="marks-absent-note" class="muted small"></span>
+          <span id="autosave-badge" class="save-badge"></span>
+        </div>
+        <div class="roster-wrap">
+          <table class="roster-tbl">
+            <thead><tr><th class="col-n">#</th><th>Student ID</th><th>Name</th><th class="col-att">Present</th><th class="col-marks">Total Marks</th><th class="col-st"></th></tr></thead>
+            <tbody id="marks-tbody"></tbody>
+          </table>
+        </div>
+        <div class="marks-savebar">
+          <div id="marks-validation" class="marks-validation" hidden></div>
+          <div class="marks-savebar-row">
+            <button id="check-completeness" class="btn-primary btn-sm">Check completeness</button>
+            <span class="muted small">Saves any unsaved marks, then checks which present students still need one before you finalize.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
   </main>
-  <script src="/static/app.js"></script>
+</div>
+
+<script src="/static/app.js"></script>
 </body>
 </html>
