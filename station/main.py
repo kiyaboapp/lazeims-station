@@ -1737,6 +1737,30 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
     def index():
         return FileResponse(_STATIC / "index.html")
 
+    @app.get("/schools", include_in_schema=False)
+    def page_schools():
+        return FileResponse(_STATIC / "schools.html")
+
+    @app.get("/users", include_in_schema=False)
+    def page_users():
+        return FileResponse(_STATIC / "users.html")
+
+    @app.get("/scopes", include_in_schema=False)
+    def page_scopes():
+        return FileResponse(_STATIC / "scopes.html")
+
+    @app.get("/reports", include_in_schema=False)
+    def page_reports():
+        return FileResponse(_STATIC / "reports.html")
+
+    @app.get("/entry", include_in_schema=False)
+    def page_entry():
+        return FileResponse(_STATIC / "entry.html")
+
+    @app.get("/settings", include_in_schema=False)
+    def page_settings():
+        return FileResponse(_STATIC / "settings.html")
+
     if _STATIC.exists():
         app.mount("/static", StaticFiles(directory=_STATIC), name="static")
 

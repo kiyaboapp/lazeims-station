@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en" class="">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Users - LAZEIMS Station</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode: 'class' };
+    if (localStorage.getItem('theme') === 'dark') document.documentElement.classList.add('dark');
+  </script>
+</head>
+<body class="bg-gray-50 dark:bg-gray-950 min-h-screen">
+  <div id="app">
+    <main class="lg:ml-64 pt-0 min-h-screen">
+      <div class="p-4 md:p-6 max-w-7xl mx-auto">
+        <!-- Header with create button -->
+        <div class="flex items-center justify-between mb-6">
+          <div></div>
+          <button id="create-btn" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors">+ New Data Enterer</button>
+        </div>
+
+        <!-- Users list -->
+        <div id="users-content" class="space-y-4"></div>
+
+        <!-- Create User Modal -->
+        <div id="create-modal" class="fixed inset-0 z-50 hidden">
+          <div class="absolute inset-0 bg-black/50" id="modal-backdrop"></div>
+          <div class="relative flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white dark:bg-gray-900 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 w-full max-w-lg max-h-[90vh] overflow-y-auto p-6">
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Create Data Enterer</h2>
+              <form id="create-form" class="space-y-4">
+                <div class="grid grid-cols-2 gap-4">
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Initials *</label>
+                    <input id="f-initials" type="text" required class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm" placeholder="e.g. JKM">
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">PIN *</label>
+                    <input id="f-pin" type="password" required minlength="4" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm" placeholder="Min 4 chars">
+                  </div>
+                </div>
+                <div class="grid grid-cols-3 gap-3">
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">First Name</label>
+                    <input id="f-first" type="text" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm">
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Middle</label>
+                    <input id="f-middle" type="text" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm">
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Surname</label>
+                    <input id="f-surname" type="text" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm">
+                  </div>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Phone</label>
+                  <input id="f-phone" type="text" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm" placeholder="Optional">
+                </div>
+
+                <!-- School Selection (multi-select chips) -->
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Assigned Schools</label>
+                  <div id="school-chips" class="flex flex-wrap gap-2 mb-2"></div>
+                  <select id="school-select" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm">
+                    <option value="">Select a school to add...</option>
+                  </select>
+                </div>
+
+                <!-- Subject Selection (filtered by selected schools) -->
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Assigned Subjects</label>
+                  <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">Only subjects available at the selected schools are shown.</p>
+                  <div id="subject-chips" class="flex flex-wrap gap-2 mb-2"></div>
+                  <select id="subject-select" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm">
+                    <option value="">Select a subject to add...</option>
+                  </select>
+                </div>
+
+                <p id="form-msg" class="text-sm min-h-[1.25rem]"></p>
+                <div class="flex gap-3 justify-end pt-2">
+                  <button type="button" id="cancel-btn" class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors">Cancel</button>
+                  <button type="submit" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors">Create User</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script type="module">
+    import { api, jpost, jdel, esc, fmt, relTime } from './static/js/api.js';
+    import { initNav, setPageTitle } from './static/shared/nav.js';
+    import { showSkeleton } from './static/shared/loading.js';
+
+    let users = [];
+    let allSchools = [];
+    let selectedSchools = [];
+    let selectedSubjects = [];
+    let availableSubjects = [];
+
+    async function boot() {
+      const session = await initNav();
+      if (!session) return;
+      setPageTitle('Users');
+
+      showSkeleton('users-content', 4);
+
+      const [usersRes, schoolsRes] = await Promise.all([
+        api('/api/admin/users').then(r => r.json()).catch(() => []),
+        api('/api/schools').then(r => r.json()).catch(() => []),
+      ]);
+      users = usersRes;
+      allSchools = schoolsRes;
+
+      renderUsers();
+      populateSchoolSelect();
+    }
+
+    function renderUsers() {
+      if (!users.length) {
+        document.getElementById('users-content').innerHTML = '<div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-8 text-center"><p class="text-sm text-gray-500 dark:text-gray-400">No users found. Create a Data Enterer to get started.</p></div>';
+        return;
+      }
+
+      document.getElementById('users-content').innerHTML = users.map(u => {
+        const scopeCentres = u.scopes?.filter(s => s.centre_number).map(s => s.centre_number) || [];
+        const scopeSubjects = u.scopes?.filter(s => s.subject_code).map(s => s.subject_code) || [];
+        const uniqueCentres = [...new Set(scopeCentres)];
+        const uniqueSubjects = [...new Set(scopeSubjects)];
+        const isActive = u.active !== false;
+        const roleColor = u.role === 'EXAM_ADMIN' ? 'purple' : 'indigo';
+
+        return `
+          <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 ${!isActive ? 'opacity-50' : ''}">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-full bg-${roleColor}-100 dark:bg-${roleColor}-900/30 flex items-center justify-center text-${roleColor}-700 dark:text-${roleColor}-300 text-sm font-bold">${esc((u.initials || u.admin_username || '?').slice(0, 2).toUpperCase())}</div>
+                <div>
+                  <p class="text-sm font-medium text-gray-900 dark:text-white">${esc(u.full_name || u.initials || u.admin_username || 'Unknown')}</p>
+                  <div class="flex items-center gap-2">
+                    <span class="text-xs px-2 py-0.5 rounded font-medium bg-${roleColor}-100 text-${roleColor}-700 dark:bg-${roleColor}-900/30 dark:text-${roleColor}-300">${u.role === 'EXAM_ADMIN' ? 'Admin' : 'DE'}</span>
+                    ${!isActive ? '<span class="text-xs px-2 py-0.5 rounded font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300">Inactive</span>' : ''}
+                    ${u.phone ? `<span class="text-xs text-gray-500 dark:text-gray-400">${esc(u.phone)}</span>` : ''}
+                  </div>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                ${u.role === 'DATA_ENTERER' && isActive ? `<button onclick="deactivateUser(${u.id})" class="px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors">Deactivate</button>` : ''}
+              </div>
+            </div>
+            ${uniqueCentres.length || uniqueSubjects.length ? `
+              <div class="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+                <p class="text-xs text-gray-500 dark:text-gray-400 mb-1.5">Scope Assignments:</p>
+                <div class="flex flex-wrap gap-1.5">
+                  ${uniqueCentres.map(cn => `<span class="px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">${esc(cn)}</span>`).join('')}
+                  ${uniqueSubjects.map(sc => `<span class="px-2 py-0.5 rounded text-xs bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">${esc(sc)}</span>`).join('')}
+                </div>
+              </div>
+            ` : ''}
+          </div>`;
+      }).join('');
+    }
+
+    function populateSchoolSelect() {
+      const sel = document.getElementById('school-select');
+      sel.innerHTML = '<option value="">Select a school to add...</option>' +
+        allSchools.map(s => `<option value="${esc(s.centre_number)}">${esc(s.centre_number)} - ${esc(s.name || '')}</option>`).join('');
+    }
+
+    function renderSchoolChips() {
+      document.getElementById('school-chips').innerHTML = selectedSchools.map(cn => {
+        const school = allSchools.find(s => s.centre_number === cn);
+        return `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+          ${esc(cn)}${school ? ` - ${esc(school.name)}` : ''}
+          <button type="button" onclick="removeSchool('${esc(cn)}')" class="ml-0.5 hover:text-blue-600">&times;</button>
+        </span>`;
+      }).join('');
+    }
+
+    function renderSubjectChips() {
+      document.getElementById('subject-chips').innerHTML = selectedSubjects.map(sc => {
+        const subj = availableSubjects.find(s => s.subject_code === sc);
+        return `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
+          ${esc(sc)}${subj ? ` - ${esc(subj.subject_name)}` : ''}
+          <button type="button" onclick="removeSubject('${esc(sc)}')" class="ml-0.5 hover:text-green-600">&times;</button>
+        </span>`;
+      }).join('');
+    }
+
+    async function refreshSubjects() {
+      if (!selectedSchools.length) {
+        availableSubjects = [];
+        selectedSubjects = [];
+        renderSubjectChips();
+        document.getElementById('subject-select').innerHTML = '<option value="">Select schools first...</option>';
+        return;
+      }
+      try {
+        const params = selectedSchools.join(',');
+        availableSubjects = await api(`/api/admin/users/available-scopes?centre_numbers=${encodeURIComponent(params)}`).then(r => r.json());
+      } catch (e) { availableSubjects = []; }
+
+      // Remove any selected subjects not in the available list
+      const availCodes = new Set(availableSubjects.map(s => s.subject_code));
+      selectedSubjects = selectedSubjects.filter(sc => availCodes.has(sc));
+      renderSubjectChips();
+
+      const sel = document.getElementById('subject-select');
+      sel.innerHTML = '<option value="">Select a subject to add...</option>' +
+        availableSubjects.filter(s => !selectedSubjects.includes(s.subject_code))
+          .map(s => `<option value="${esc(s.subject_code)}">${esc(s.subject_code)} - ${esc(s.subject_name)}</option>`).join('');
+    }
+
+    window.removeSchool = function(cn) {
+      selectedSchools = selectedSchools.filter(s => s !== cn);
+      renderSchoolChips();
+      refreshSubjects();
+    };
+
+    window.removeSubject = function(sc) {
+      selectedSubjects = selectedSubjects.filter(s => s !== sc);
+      renderSubjectChips();
+      refreshSubjects();
+    };
+
+    window.deactivateUser = async function(userId) {
+      if (!confirm('Deactivate this user? They will no longer be able to log in.')) return;
+      const r = await jdel(`/api/admin/users/${userId}`);
+      if (r.ok) {
+        users = await api('/api/admin/users').then(r => r.json()).catch(() => []);
+        renderUsers();
+      } else {
+        alert('Failed to deactivate user.');
+      }
+    };
+
+    document.getElementById('school-select').addEventListener('change', (e) => {
+      const val = e.target.value;
+      if (val && !selectedSchools.includes(val)) {
+        selectedSchools.push(val);
+        renderSchoolChips();
+        refreshSubjects();
+      }
+      e.target.value = '';
+    });
+
+    document.getElementById('subject-select').addEventListener('change', (e) => {
+      const val = e.target.value;
+      if (val && !selectedSubjects.includes(val)) {
+        selectedSubjects.push(val);
+        renderSubjectChips();
+        // Update dropdown to remove selected
+        const opt = e.target.querySelector(`option[value="${val}"]`);
+        if (opt) opt.remove();
+      }
+      e.target.value = '';
+    });
+
+    document.getElementById('create-btn').addEventListener('click', () => {
+      document.getElementById('create-modal').classList.remove('hidden');
+      selectedSchools = [];
+      selectedSubjects = [];
+      availableSubjects = [];
+      renderSchoolChips();
+      renderSubjectChips();
+      refreshSubjects();
+    });
+
+    document.getElementById('cancel-btn').addEventListener('click', closeModal);
+    document.getElementById('modal-backdrop').addEventListener('click', closeModal);
+
+    function closeModal() {
+      document.getElementById('create-modal').classList.add('hidden');
+      document.getElementById('create-form').reset();
+      document.getElementById('form-msg').textContent = '';
+      selectedSchools = [];
+      selectedSubjects = [];
+      renderSchoolChips();
+      renderSubjectChips();
+    }
+
+    document.getElementById('create-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const msg = document.getElementById('form-msg');
+      msg.textContent = 'Creating...';
+      msg.className = 'text-sm min-h-[1.25rem] text-gray-600 dark:text-gray-400';
+
+      const body = {
+        initials: document.getElementById('f-initials').value.trim(),
+        pin: document.getElementById('f-pin').value,
+        first_name: document.getElementById('f-first').value.trim() || null,
+        middle_name: document.getElementById('f-middle').value.trim() || null,
+        surname: document.getElementById('f-surname').value.trim() || null,
+        phone: document.getElementById('f-phone').value.trim() || null,
+        centre_numbers: selectedSchools.length ? selectedSchools : null,
+        subject_codes: selectedSubjects.length ? selectedSubjects : null,
+      };
+
+      const r = await jpost('/api/admin/users', body);
+      if (r.ok) {
+        closeModal();
+        users = await api('/api/admin/users').then(r => r.json()).catch(() => []);
+        renderUsers();
+      } else {
+        const err = await r.json().catch(() => ({}));
+        msg.textContent = err.detail || 'Failed to create user.';
+        msg.className = 'text-sm min-h-[1.25rem] text-red-600 dark:text-red-400';
+      }
+    });
+
+    boot();
+  </script>
+</body>
+</html>

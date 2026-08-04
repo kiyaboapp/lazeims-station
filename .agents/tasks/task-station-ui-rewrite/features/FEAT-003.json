@@ -2,7 +2,7 @@
   "id": "FEAT-003",
   "type": "feat",
   "description": "Multi-page HTML rewrite with Tailwind CSS - Rewrite the frontend from a single-page index.html into multiple dedicated HTML pages using Tailwind CDN for styling. Each page has a shared sidebar/nav component. Loading spinners for slow queries. Rich dashboard with Chart.js graphs.",
-  "status": "pending",
+  "status": "completed",
   "steps": [
     "Create station/static/shared/nav.js - a reusable module that injects the sidebar HTML and topbar into any page. It reads the current page URL to highlight the active nav item. Includes the profile card, theme toggle, logout button, and station status pill. This replaces the sidebar HTML currently embedded in index.html.",
     "Create station/static/index.html (COMPLETE REWRITE) - Login page + Dashboard with rich Chart.js graphs. Uses Tailwind CDN (https://cdn.tailwindcss.com) and Chart.js CDN (https://cdn.jsdelivr.net/npm/chart.js). Dashboard shows: overall progress doughnut chart, marks-per-day line chart (14 days), per-school completion bar chart, per-subject progress horizontal bars, top enterers table. Includes loading spinner/skeleton states while data loads. For DE role: shows only their assigned scopes progress using the scoped /api/progress?user_id=X endpoint.",
@@ -40,5 +40,5 @@
     "Verify Chart.js is included in dashboard and reports: grep -l 'chart.js' station/static/index.html station/static/reports.html"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "Updated test_static_assets_have_no_cdn_references to allow Tailwind CDN and Chart.js CDN hosts. Pre-existing test failures in test_entry_api.py (2), test_sync_api.py (1), test_sync_http.py (2) confirmed to fail on base state as well. Entry.html uses dynamic import with patched router.showView to maintain compatibility with existing entry/portal/finalize modules."
 }

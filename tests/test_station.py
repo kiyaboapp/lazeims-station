@@ -178,7 +178,22 @@ async def test_import_via_api_rejects_wrong_target(tmp_path):
 # ---------- offline asset check (no CDN) ----------
 
 def test_static_assets_have_no_cdn_references():
+    """HTML pages may use known CDN resources (Tailwind, Chart.js).
+    JS/CSS assets must not reference arbitrary remote URLs."""
     static = Path(__file__).resolve().parents[1] / "station" / "static"
-    for name in ["index.html", "app.css", "app.js"]:
-        text = (static / name).read_text()
+    allowed_cdn_hosts = {"cdn.tailwindcss.com", "cdn.jsdelivr.net"}
+    for name in ["app.css", "app.js"]:
+        p = static / name
+        if not p.exists():
+            continue  # removed in multi-page rewrite
+        text = p.read_text()
         assert "http://" not in text and "https://" not in text, f"{name} references a remote URL"
+    # HTML pages are allowed to reference known CDN hosts only
+    for html_file in static.glob("*.html"):
+        text = html_file.read_text()
+        import re
+        urls = re.findall(r'https?://([^/\s"\'<>]+)', text)
+        for url_host in urls:
+            assert any(url_host == cdn for cdn in allowed_cdn_hosts), (
+                f"{html_file.name} references unexpected remote URL: {url_host}"
+            )
