@@ -367,6 +367,29 @@ button:disabled { opacity:.4; cursor:not-allowed; }
 .tbl-toolbar { display:flex; align-items:center; gap:12px; margin-bottom:10px; flex-wrap:wrap; }
 .td-empty { padding:32px; text-align:center; color:var(--muted); }
 
+/* ── AUDIT TABLE ────────────────────────────────────────────────── */
+#view-audit .roster-tbl { table-layout:fixed; min-width:720px; }
+#view-audit .roster-tbl th,
+#view-audit .roster-tbl td { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#view-audit .roster-tbl th:nth-child(1),
+#view-audit .roster-tbl td:nth-child(1) { width:160px; } /* Time */
+#view-audit .roster-tbl th:nth-child(2),
+#view-audit .roster-tbl td:nth-child(2) { width:110px; } /* Student */
+#view-audit .roster-tbl th:nth-child(3),
+#view-audit .roster-tbl td:nth-child(3) { width:70px; }  /* Subject */
+#view-audit .roster-tbl th:nth-child(4),
+#view-audit .roster-tbl td:nth-child(4) { width:80px; }  /* Paper */
+#view-audit .roster-tbl th:nth-child(5),
+#view-audit .roster-tbl td:nth-child(5) { width:60px; text-align:right; }  /* Before */
+#view-audit .roster-tbl th:nth-child(6),
+#view-audit .roster-tbl td:nth-child(6) { width:60px; text-align:right; }  /* After */
+#view-audit .roster-tbl th:nth-child(7),
+#view-audit .roster-tbl td:nth-child(7) { width:80px; }  /* By */
+#view-audit .roster-tbl th:nth-child(8),
+#view-audit .roster-tbl td:nth-child(8) { width:60px; }  /* Op */
+.audit-filters { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+.audit-correction td { background:color-mix(in srgb,var(--warn-bg,#fff3cd) 40%,transparent); }
+
 /* ── ATTENDANCE TOGGLE ──────────────────────────────────────────── */
 .att-toggle { position:relative; display:inline-flex; align-items:center; width:68px; height:30px; border-radius:20px; border:none; cursor:pointer; transition:background .2s; padding:0; }
 .att-p { background:var(--ok); }
