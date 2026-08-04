@@ -2,7 +2,7 @@
   "id": "FEAT-002",
   "type": "feat",
   "description": "Backend API additions - Add analytics endpoints and fix scoping bugs in existing endpoints. This provides the data layer for the new rich dashboard, reports page, and properly scoped user management.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "In station/main.py, add GET /api/analytics/dashboard endpoint that returns: marks_per_day (last 14 days), per_subject_progress (marks entered vs total per subject), completion_timeline (cumulative finalized scopes over time), top_enterers (marks count per DE).",
     "In station/main.py, add GET /api/analytics/subject-distribution endpoint that returns per-subject marks distribution (min, max, mean, median, quartiles) for each subject+paper on the station.",
@@ -24,5 +24,5 @@
     "Run: python -c \"from station.main import app; print('API loaded OK')\" to verify the app compiles without syntax errors"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "All 6 endpoints implemented and verified. 48 tests pass, 5 pre-existing failures unchanged. The finalized_scopes table has a finalized_at column which is used for the completion_timeline. The analytics endpoints are placed before the catch-all route and require EXAM_ADMIN role. The available-scopes endpoint returns all subjects when no centre_numbers param is provided. The progress endpoint user_id filtering uses de_scopes_for() and is_scope_allowed() consistently with existing patterns. Subject distribution uses Python statistics module for quartile calculations (only when count >= 4)."
 }
