@@ -66,6 +66,40 @@ def rejected_count(conn: sqlite3.Connection) -> int:
     ).fetchone()["c"])
 
 
+def list_rejected(conn: sqlite3.Connection, *, limit: int = 200) -> list[dict]:
+    """Return rejected outbox events with their reason so an admin can see
+    WHY Central refused them (e.g. ATTENDANCE_REQUIRED_FIRST, PHASE_NOT_OPEN)
+    instead of just a bare count.
+    """
+    rows = conn.execute(
+        "SELECT event_id, entity_type, operation, natural_key_json, value_json,"
+        " local_version, actor_assignment_id, occurred_at, attempts, last_error"
+        " FROM outbox_events WHERE status = 'REJECTED'"
+        " ORDER BY occurred_at DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    out = []
+    for r in rows:
+        try:
+            natural_key = json.loads(r["natural_key_json"]) if r["natural_key_json"] else {}
+        except (TypeError, ValueError):
+            natural_key = {}
+        out.append({
+            "event_id": r["event_id"],
+            "entity_type": r["entity_type"],
+            "operation": r["operation"],
+            "natural_key": natural_key,
+            "local_version": r["local_version"],
+            "actor_assignment_id": r["actor_assignment_id"],
+            "occurred_at": r["occurred_at"],
+            "attempts": r["attempts"],
+            # last_error holds the rejection CODE from Central (see
+            # station/sync.py::run_sync), e.g. "ATTENDANCE_REQUIRED_FIRST".
+            "rejection_code": r["last_error"],
+        })
+    return out
+
+
 def retry_rejected(conn: sqlite3.Connection) -> int:
     """Reset all REJECTED events back to PENDING so the next sync re-sends them.
 

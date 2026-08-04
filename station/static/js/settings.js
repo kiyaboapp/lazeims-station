@@ -1,8 +1,56 @@
 // settings.js — sync/settings + pull snapshot + export/import ack
 import { $, api, jpost, esc, fmt, setMsg } from './api.js';
 
+// Human-readable explanations for Central's rejection codes so the admin
+// knows what to fix, not just that something failed.
+const REJECTION_LABELS = {
+  ATTENDANCE_REQUIRED_FIRST: 'Attendance was not recorded before marks were sent — record attendance for this student/paper, then retry.',
+  BLANK_MARK_NOT_ALLOWED: 'A present student has no mark recorded — enter marks then retry.',
+  EVENT_ID_PAYLOAD_CONFLICT: 'This exact event was already synced with different data — usually a stale retry after a correction; safe to ignore if the newer value already synced separately.',
+  PHASE_NOT_OPEN: 'The exam has moved past data entry on Central — this scope can no longer be changed. Contact your exam coordinator.',
+  CONFIGURATION_MISMATCH: 'This event refers to a student/subject/paper Central does not recognise for this exam — check the package version.',
+  SCOPE_NOT_COMPLETE: 'Central rejected this finalize because required marks/attendance are still missing there — pull a snapshot and compare.',
+};
+
+function rejectionLabel(code) {
+  return REJECTION_LABELS[code] || 'Central rejected this event — see the code for detail.';
+}
+
+async function loadRejectedList() {
+  const el = $('rejected-list');
+  const btn = $('retry-rejected-btn');
+  let items = [];
+  try { items = await (await api('/api/sync/rejected')).json(); } catch (e) { return; }
+  const has = Array.isArray(items) && items.length > 0;
+  if (btn) btn.hidden = !has;
+  if (!el) return;
+  if (!has) { el.innerHTML = ''; el.hidden = true; return; }
+  el.hidden = false;
+  const grouped = {};
+  for (const it of items) {
+    const code = it.rejection_code || 'UNKNOWN';
+    (grouped[code] ||= []).push(it);
+  }
+  el.innerHTML = Object.entries(grouped).map(([code, evts]) => `
+    <div class="rejected-group">
+      <div class="rejected-group-head">
+        <strong>${esc(code)}</strong> <span class="muted small">(${evts.length})</span>
+      </div>
+      <p class="muted small" style="margin:2px 0 6px">${esc(rejectionLabel(code))}</p>
+      <ul class="rejected-event-list">
+        ${evts.slice(0, 20).map(ev => {
+          const nk = ev.natural_key || {};
+          const parts = [nk.student_id, nk.subject_code, nk.paper_type].filter(Boolean);
+          return `<li>${esc(ev.entity_type)} ${parts.length ? '· ' + esc(parts.join(' · ')) : ''} <span class="muted small">${esc(ev.occurred_at || '')}</span></li>`;
+        }).join('')}
+      </ul>
+      ${evts.length > 20 ? `<p class="muted small">…and ${evts.length - 20} more</p>` : ''}
+    </div>`).join('');
+}
+
 export async function loadSettings() {
   loadSyncConfig();
+  loadRejectedList();
   // Station info
   try {
     const s = await (await api('/api/status')).json();
@@ -46,13 +94,14 @@ export function initSettings() {
     if ((d.sent ?? 0) === 0) { setMsg('sync-msg', '', false); $('sync-result').textContent = 'Nothing to sync.'; return; }
     setMsg('sync-msg', '', false);
     $('sync-result').textContent = `Sent ${d.sent}: accepted ${d.accepted ?? 0}, rejected ${d.rejected ?? 0}, duplicates ${d.duplicates ?? 0}`;
+    if ((d.rejected ?? 0) > 0) await loadRejectedList();
   });
 
   $('retry-rejected-btn')?.addEventListener('click', async () => {
     setMsg('sync-msg', 'Resetting…', false);
     const r = await jpost('/api/sync/retry-rejected', {});
     const d = await r.json().catch(() => ({}));
-    if (r.ok) { $('sync-result').textContent = `${d.queued} event(s) queued.`; loadSyncConfig(); }
+    if (r.ok) { $('sync-result').textContent = `${d.queued} event(s) queued.`; loadSyncConfig(); loadRejectedList(); }
     else setMsg('sync-msg', d.detail || 'Failed.', true);
   });
 

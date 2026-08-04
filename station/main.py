@@ -655,25 +655,26 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
         exam_row = conn.execute("SELECT value FROM station_meta WHERE key='exam_name'").fetchone()
         exam_name = exam_row["value"] if exam_row else eid
 
-        school_row = conn.execute("SELECT school_name FROM schools WHERE centre_number=?", (centre_number,)).fetchone()
-        school_name = school_row["school_name"] if school_row else centre_number
+        school_row = conn.execute("SELECT name FROM schools WHERE centre_number=?", (centre_number,)).fetchone()
+        school_name = school_row["name"] if school_row else centre_number
 
-        sub_row = conn.execute("SELECT name FROM subjects WHERE code=?", (subject_code,)).fetchone()
-        subject_name = sub_row["name"] if sub_row else subject_code
-
-        # Total possible
-        config_row = conn.execute(
-            "SELECT total_marks_theory1, total_marks_theory2, total_marks_practical FROM exam_subjects WHERE subject_code=?",
+        sub_row = conn.execute(
+            "SELECT name, total_theory1, total_theory2, total_practical FROM subjects WHERE subject_code=?",
             (subject_code,)
         ).fetchone()
+        subject_name = sub_row["name"] if sub_row else subject_code
+
+        # Total possible marks for this paper — scoring config lives directly
+        # on the subjects row (see migrations.py); there is no separate
+        # exam_subjects table on the station.
         total_possible = 100
-        if config_row:
+        if sub_row:
             if paper_type.value == "THEORY1":
-                total_possible = config_row["total_marks_theory1"]
+                total_possible = sub_row["total_theory1"] or 100
             elif paper_type.value == "THEORY2":
-                total_possible = config_row["total_marks_theory2"]
+                total_possible = sub_row["total_theory2"] or 100
             elif paper_type.value == "PRACTICAL":
-                total_possible = config_row["total_marks_practical"]
+                total_possible = sub_row["total_practical"] or 100
 
         # Questions
         q_rows = conn.execute(
@@ -682,15 +683,23 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
         ).fetchall()
         questions = [{"number": str(q["question_number"]), "max_marks": float(q["max_marks"])} for q in q_rows]
 
-        # Students
+        # Students — full_name is derived here (first/middle/surname are the
+        # only stored columns; see AGENTS.md: never expose them separately).
         students_rows = conn.execute(
-            "SELECT s.student_id, s.full_name FROM students s JOIN student_subjects ss ON ss.student_id = s.student_id WHERE ss.subject_code=? AND s.centre_number=? ORDER BY s.student_id",
+            "SELECT s.student_id, s.first_name, s.middle_name, s.surname"
+            " FROM students s JOIN student_subjects ss ON ss.student_id = s.student_id"
+            " WHERE ss.subject_code=? AND s.centre_number=? ORDER BY s.student_id",
             (subject_code, centre_number)
         ).fetchall()
 
         out = []
         for st in students_rows:
             sid = st["student_id"]
+            full_name = (
+                (st["first_name"] or "").strip().upper()
+                + (" " + (st["middle_name"] or "").strip().upper() if st["middle_name"] else "")
+                + " " + (st["surname"] or "").strip().upper()
+            ).strip()
             # Attendance
             att_rows = _attendance_rows(conn, sid, subject_code)
             is_present = effective_attendance(att_rows, paper_type)
@@ -705,14 +714,16 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
             item_marks = None
             if q_rows:
                 im_rows = conn.execute(
-                    "SELECT question_number, marks_obtained FROM item_marks WHERE student_id=? AND subject_code=? AND paper_type=?",
+                    "SELECT q.question_number, im.marks_obtained FROM item_marks im"
+                    " JOIN questions q ON q.id = im.question_id"
+                    " WHERE im.student_id=? AND q.subject_code=? AND q.paper_type=?",
                     (sid, subject_code, paper_type.value)
                 ).fetchall()
                 item_marks = {str(r["question_number"]): float(r["marks_obtained"]) if r["marks_obtained"] is not None else None for r in im_rows}
 
             out.append({
                 "student_id": sid,
-                "full_name": st["full_name"],
+                "full_name": full_name,
                 "attendance": is_present,
                 "total_marks": float(tm["total_marks_obtained"]) if tm else None,
                 "item_marks": item_marks,
@@ -972,6 +983,21 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
         result = run_http_sync(conn)
         log.warning("[SYNC-DEBUG] run_http_sync result=%r", result)
         return result
+
+    @app.get("/api/sync/rejected", tags=["sync"])
+    def sync_rejected(conn=Depends(db), a=Depends(actor)):
+        """List rejected outbox events with Central's rejection reason.
+
+        The bare ``rejected_events`` count in /api/progress tells the admin
+        SOMETHING failed but not why. This endpoint answers that: each entry
+        carries the natural key (student/subject/paper) and the rejection
+        code Central returned (e.g. ATTENDANCE_REQUIRED_FIRST, PHASE_NOT_OPEN,
+        EVENT_ID_PAYLOAD_CONFLICT) so the admin knows what to fix before
+        retrying.
+        """
+        if a["role"] != "EXAM_ADMIN":
+            raise HTTPException(403, "Admin only")
+        return outbox.list_rejected(conn)
 
     @app.post("/api/sync/retry-rejected", tags=["sync"])
     def sync_retry_rejected(conn=Depends(db), a=Depends(actor)):

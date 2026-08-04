@@ -649,3 +649,15 @@ button:disabled { opacity:.4; cursor:not-allowed; }
   color:var(--fg);
 }
 #switch-station-btn:hover { background:var(--primary-ghost, rgba(99,102,241,0.08)); border-color:var(--primary); }
+
+/* Rejected sync events */
+.rejected-list { margin-top:12px; display:flex; flex-direction:column; gap:10px; }
+.rejected-group {
+  border:1px solid var(--border);
+  border-radius:8px;
+  padding:10px 12px;
+  background:var(--card);
+}
+.rejected-group-head { color:var(--err, #dc2626); font-size:13px; }
+.rejected-event-list { margin:0; padding-left:18px; font-size:12px; }
+.rejected-event-list li { margin-bottom:2px; }
