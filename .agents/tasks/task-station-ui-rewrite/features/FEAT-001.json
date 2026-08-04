@@ -1,0 +1,22 @@
+{
+  "id": "FEAT-001",
+  "type": "chore",
+  "description": "Environment setup - install dependencies and verify existing tests pass as a baseline before making changes.",
+  "status": "completed",
+  "steps": [
+    "Install the project in dev mode: pip install -e '.[dev]' from /projects/sandbox/lazeims-station",
+    "Install lazeims-common dependency: pip install -e /projects/sandbox/lazeims-common",
+    "Run existing tests: python -m pytest tests/ -q to confirm baseline is green",
+    "If tests fail, diagnose and document failures (do not fix pre-existing issues)"
+  ],
+  "acceptance_criteria": [
+    "pip install -e '.[dev]' succeeds without errors",
+    "pip install -e /projects/sandbox/lazeims-common succeeds",
+    "python -m pytest tests/ -q runs (documenting any pre-existing failures)"
+  ],
+  "verification": [
+    "Run: cd /projects/sandbox/lazeims-station && pip install -e '.[dev]' && pip install -e /projects/sandbox/lazeims-common && python -m pytest tests/ -q"
+  ],
+  "blocked_reason": null,
+  "findings": "Environment setup completed successfully. Required pyenv global 3.11.15 (default was 3.9.25 which does not satisfy >=3.11 requirement). Also needed pytest-asyncio installed separately. Test results: 44 passed, 5 FAILED (pre-existing). Failures: (1) test_entry_api.py::test_full_entry_flow_over_http - 404 on PUT /api/marks/students/{sid}, route mismatch between test and actual API. (2) test_entry_api.py::test_no_blank_rejected_over_http - same 404 route mismatch. (3) test_sync_api.py::test_sync_config_and_run_flow - 422 on POST /api/login/admin, request body validation mismatch. (4) test_sync_http.py::test_http_sync_posts_with_key_and_accepts - TypeError: set_sync_config() got unexpected keyword argument 'sync_key'. (5) test_sync_http.py::test_http_sync_offline_is_resumable - same TypeError with sync_key. All failures are pre-existing in the codebase (tests are out of sync with implementation)."
+}

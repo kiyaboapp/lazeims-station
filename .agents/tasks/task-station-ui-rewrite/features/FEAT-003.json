@@ -1,0 +1,44 @@
+{
+  "id": "FEAT-003",
+  "type": "feat",
+  "description": "Multi-page HTML rewrite with Tailwind CSS - Rewrite the frontend from a single-page index.html into multiple dedicated HTML pages using Tailwind CDN for styling. Each page has a shared sidebar/nav component. Loading spinners for slow queries. Rich dashboard with Chart.js graphs.",
+  "status": "pending",
+  "steps": [
+    "Create station/static/shared/nav.js - a reusable module that injects the sidebar HTML and topbar into any page. It reads the current page URL to highlight the active nav item. Includes the profile card, theme toggle, logout button, and station status pill. This replaces the sidebar HTML currently embedded in index.html.",
+    "Create station/static/index.html (COMPLETE REWRITE) - Login page + Dashboard with rich Chart.js graphs. Uses Tailwind CDN (https://cdn.tailwindcss.com) and Chart.js CDN (https://cdn.jsdelivr.net/npm/chart.js). Dashboard shows: overall progress doughnut chart, marks-per-day line chart (14 days), per-school completion bar chart, per-subject progress horizontal bars, top enterers table. Includes loading spinner/skeleton states while data loads. For DE role: shows only their assigned scopes progress using the scoped /api/progress?user_id=X endpoint.",
+    "Create station/static/schools.html - Schools page with: search/filter input, sortable table of all schools (centre number, name, students count, scopes finalized/total, progress bar), expandable rows showing per-subject detail. Uses Tailwind for clean table styling.",
+    "Create station/static/users.html - User management page with: list of all users as cards/table, create DE form with FIXED scoping (when schools are selected, subject dropdown only shows subjects available at those schools via /api/admin/users/available-scopes endpoint), multi-select chips for schools and subjects, user activity stats (marks entered, last active). Loading states for the form.",
+    "Create station/static/scopes.html - All scopes view with filter chips (All/Open/In use/Finalized), scope cards showing centre+subject+paper+status, force-release button for admin.",
+    "Create station/static/reports.html - Station-level analysis and reports page. Shows: marks distribution histogram per subject (Chart.js), attendance rates per school (bar chart), subject comparison radar chart, exportable summary table. Uses /api/analytics/* endpoints.",
+    "Create station/static/entry.html - Marks entry page. Preserves ALL existing entry logic from entry.js, portal.js, finalize.js. Scope selection portal + attendance tab + marks tab + finalize flow. This is the most critical page - the existing JS logic MUST work unchanged.",
+    "Create station/static/settings.html - Sync/Settings page with: central URL config, sync now button, import package form, pull snapshot, export outbox, import ack, station info, rejected events list with human-readable explanations. Audit log section included here.",
+    "Update station/main.py - Add routes to serve each new HTML page: GET /schools -> schools.html, GET /users -> users.html, GET /scopes -> scopes.html, GET /reports -> reports.html, GET /entry -> entry.html, GET /settings -> settings.html. Keep GET / -> index.html.",
+    "Create station/static/shared/loading.js - Reusable loading spinner component and skeleton screen utilities. Exports functions like showSpinner(containerId), hideSpinner(containerId), showSkeleton(containerId, rows).",
+    "Update station/static/js/api.js, station/static/js/state.js - Keep these shared modules compatible with multi-page architecture. Each page imports only what it needs.",
+    "Remove station/static/app.css (no longer needed - Tailwind handles all styling). Remove station/static/app.js if it exists.",
+    "Each HTML page must include: Tailwind CDN script tag, shared nav import, page-specific JS module, proper meta tags for mobile responsiveness, dark mode support via Tailwind dark: classes."
+  ],
+  "acceptance_criteria": [
+    "station/static/index.html exists with Tailwind CDN, Chart.js CDN, login form, and dashboard with graphs",
+    "station/static/schools.html exists with searchable/sortable school table",
+    "station/static/users.html exists with create user form that filters subjects by selected schools",
+    "station/static/scopes.html exists with filtered scope list",
+    "station/static/reports.html exists with Chart.js analytics visualizations",
+    "station/static/entry.html exists with full marks entry flow preserved (attendance, marks, finalize)",
+    "station/static/settings.html exists with sync configuration and audit log",
+    "station/static/shared/nav.js exists and is imported by all pages",
+    "station/static/shared/loading.js exists with spinner/skeleton utilities",
+    "All pages use Tailwind CDN for styling instead of app.css",
+    "All pages are responsive (mobile-friendly)",
+    "Dark mode toggle works across all pages",
+    "FastAPI serves each page at its respective URL path"
+  ],
+  "verification": [
+    "Run: cd /projects/sandbox/lazeims-station && python -m pytest tests/ -q to ensure backend tests still pass",
+    "Run: python -c \"from station.main import app; print('Routes OK')\" to verify all routes compile",
+    "Verify each HTML file exists and contains Tailwind CDN reference: grep -l 'tailwindcss' station/static/*.html",
+    "Verify Chart.js is included in dashboard and reports: grep -l 'chart.js' station/static/index.html station/static/reports.html"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

@@ -1,0 +1,7 @@
+{
+  "task_id": "task-station-ui-rewrite",
+  "task_description": "Rewrite the LAZEIMS Station frontend from a single-page HTML app into multiple dedicated HTML pages with Tailwind CSS styling, Chart.js graphs, and proper responsive design. Fix scoping bugs (user creation shows all subjects instead of filtering by school, DE dashboard shows station-wide progress instead of their own). Add backend analytics endpoints for rich dashboard and reports. Add loading spinners for slow queries.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003"],
+  "blocked_reason": null
+}
