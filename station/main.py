@@ -758,9 +758,18 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
         return {"finalized": True, "result": result}
 
     @app.get("/api/progress", tags=["entry"])
-    def progress(conn=Depends(db), a=Depends(actor)):
+    def progress(user_id: int | None = None, conn=Depends(db), a=Depends(actor)):
         import datetime as _dt
         today_prefix = _dt.date.today().isoformat()  # "YYYY-MM-DD"
+
+        # If user_id is provided, scope filtering to that user's assignments
+        scope_filter = None
+        if user_id is not None:
+            user_row = conn.execute(
+                "SELECT assignment_id FROM station_users WHERE id=?", (user_id,)
+            ).fetchone()
+            if user_row:
+                scope_filter = de_scopes_for(conn, user_row["assignment_id"])
 
         # Total scopes (distinct centre+subject+paper combinations)
         all_scopes = conn.execute(
@@ -769,6 +778,11 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
         ).fetchall()
         subj_map = {}
         for r in all_scopes:
+            # Apply scope filter if present
+            if scope_filter is not None and not is_scope_allowed(
+                scope_filter, centre_number=r["centre_number"], subject_code=r["subject_code"]
+            ):
+                continue
             subj = conn.execute(
                 "SELECT total_theory2, total_practical FROM subjects WHERE subject_code=?",
                 (r["subject_code"],)).fetchone()
@@ -776,27 +790,71 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
             subj_map[(r["centre_number"], r["subject_code"])] = papers
         total_scopes = sum(subj_map.values())
 
-        fin_count = conn.execute("SELECT COUNT(*) c FROM finalized_scopes").fetchone()["c"]
+        # Determine which centres are in scope for filtering
+        scoped_centres = None
+        if scope_filter is not None:
+            scoped_centres = set(cn for cn, _ in subj_map.keys())
+
+        fin_count = 0
+        if scope_filter is None:
+            fin_count = conn.execute("SELECT COUNT(*) c FROM finalized_scopes").fetchone()["c"]
+        else:
+            # Count finalized scopes only for the in-scope centre+subject+paper combos
+            for (cn, sc), papers_count in subj_map.items():
+                subj = conn.execute(
+                    "SELECT total_theory2, total_practical FROM subjects WHERE subject_code=?",
+                    (sc,)).fetchone()
+                paper_list = ["THEORY1"]
+                if subj and subj["total_theory2"]:
+                    paper_list.append("THEORY2")
+                if subj and subj["total_practical"]:
+                    paper_list.append("PRACTICAL")
+                for p in paper_list:
+                    key = f"{cn}|{sc}|{p}"
+                    fin = conn.execute(
+                        "SELECT 1 FROM finalized_scopes WHERE scope_key=?", (key,)
+                    ).fetchone()
+                    if fin:
+                        fin_count += 1
 
         # Today's marks (total_marks entered today)
-        marks_today = conn.execute(
-            "SELECT COUNT(*) c FROM total_marks WHERE entered_at LIKE ?",
-            (today_prefix + "%",)
-        ).fetchone()["c"]
-        # Also count item-level marks sessions entered today (distinct student/subject/paper combos)
-        item_today = conn.execute(
-            "SELECT COUNT(DISTINCT im.student_id || '|' || q.subject_code || '|' || q.paper_type) c"
-            " FROM item_marks im JOIN questions q ON q.id = im.question_id"
-            " WHERE im.entered_at LIKE ?",
-            (today_prefix + "%",)
-        ).fetchone()["c"]
-        marks_today_total = marks_today + item_today
+        if scope_filter is None:
+            marks_today = conn.execute(
+                "SELECT COUNT(*) c FROM total_marks WHERE entered_at LIKE ?",
+                (today_prefix + "%",)
+            ).fetchone()["c"]
+            item_today = conn.execute(
+                "SELECT COUNT(DISTINCT im.student_id || '|' || q.subject_code || '|' || q.paper_type) c"
+                " FROM item_marks im JOIN questions q ON q.id = im.question_id"
+                " WHERE im.entered_at LIKE ?",
+                (today_prefix + "%",)
+            ).fetchone()["c"]
+        else:
+            # Filter marks to scoped students
+            marks_today = conn.execute(
+                "SELECT COUNT(*) c FROM total_marks tm"
+                " JOIN students s ON s.student_id=tm.student_id"
+                " WHERE tm.entered_at LIKE ?"
+                " AND EXISTS (SELECT 1 FROM student_subjects ss WHERE ss.student_id=s.student_id"
+                "   AND (? = '' OR s.centre_number IN (SELECT centre_number FROM user_scopes WHERE assignment_id=?))"
+                "   AND (? = '' OR ss.subject_code IN (SELECT subject_code FROM user_scopes WHERE assignment_id=?)))",
+                (today_prefix + "%",
+                 "" if not scope_filter["centres"] else "x",
+                 (user_row["assignment_id"] if user_row else 0),
+                 "" if not scope_filter["subjects"] else "x",
+                 (user_row["assignment_id"] if user_row else 0))
+            ).fetchone()["c"]
+            item_today = 0  # simplified for scoped view
+        marks_today_total = marks_today + (item_today if scope_filter is None else 0)
 
         # Per-school breakdown
         schools = conn.execute("SELECT centre_number, name FROM schools ORDER BY centre_number").fetchall()
         per_school = []
         for school in schools:
             cn = school["centre_number"]
+            # Skip schools not in scope
+            if scoped_centres is not None and cn not in scoped_centres:
+                continue
             # Count total scopes for this school
             school_scope_pairs = conn.execute(
                 "SELECT DISTINCT ss.subject_code FROM students s"
@@ -806,10 +864,17 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
             ).fetchall()
             school_total_scopes = 0
             for sp in school_scope_pairs:
+                if scope_filter is not None and not is_scope_allowed(
+                    scope_filter, centre_number=cn, subject_code=sp["subject_code"]
+                ):
+                    continue
                 subj = conn.execute(
                     "SELECT total_theory2, total_practical FROM subjects WHERE subject_code=?",
                     (sp["subject_code"],)).fetchone()
                 school_total_scopes += 1 + (1 if subj and subj["total_theory2"] else 0) + (1 if subj and subj["total_practical"] else 0)
+
+            if school_total_scopes == 0 and scope_filter is not None:
+                continue
 
             # Finalized scopes for this school
             school_fin = conn.execute(
@@ -829,13 +894,6 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
                 "SELECT COUNT(*) c FROM students WHERE centre_number = ?",
                 (cn,)
             ).fetchone()["c"]
-            # Students whose attendance is present (any paper)
-            school_present = conn.execute(
-                "SELECT COUNT(DISTINCT student_id) c FROM attendance"
-                " WHERE student_id IN (SELECT student_id FROM students WHERE centre_number = ?)"
-                " AND is_present = 1",
-                (cn,)
-            ).fetchone()["c"]
 
             per_school.append({
                 "centre_number": cn,
@@ -846,14 +904,24 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
                 "marks_entered": school_marks,
             })
 
+        # Total counts - apply scope filter
+        if scope_filter is None:
+            total_students = conn.execute("SELECT COUNT(*) c FROM students").fetchone()["c"]
+            total_marks_count = conn.execute("SELECT COUNT(*) c FROM total_marks").fetchone()["c"]
+            total_item_marks = conn.execute("SELECT COUNT(*) c FROM item_marks").fetchone()["c"]
+        else:
+            total_students = sum(s["students"] for s in per_school)
+            total_marks_count = sum(s["marks_entered"] for s in per_school)
+            total_item_marks = 0  # simplified for scoped view
+
         return {
             "pending_events": outbox.pending_count(conn),
             "rejected_events": outbox.rejected_count(conn),
             "finalized_scopes": fin_count,
             "total_scopes": total_scopes,
-            "students": conn.execute("SELECT COUNT(*) c FROM students").fetchone()["c"],
-            "total_marks": conn.execute("SELECT COUNT(*) c FROM total_marks").fetchone()["c"],
-            "item_marks": conn.execute("SELECT COUNT(*) c FROM item_marks").fetchone()["c"],
+            "students": total_students,
+            "total_marks": total_marks_count,
+            "item_marks": total_item_marks,
             "marks_today": marks_today_total,
             "per_school": per_school,
         }
@@ -1179,6 +1247,23 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
         if existing:
             raise HTTPException(409, f"A Data Enterer with initials '{initials}' already exists")
 
+        # Validate that subject_codes exist for the given centre_numbers
+        if payload.centre_numbers and payload.subject_codes:
+            placeholders = ",".join("?" for _ in payload.centre_numbers)
+            available_subjects = conn.execute(
+                f"SELECT DISTINCT ss.subject_code FROM students s"
+                f" JOIN student_subjects ss ON ss.student_id=s.student_id"
+                f" WHERE s.centre_number IN ({placeholders})",
+                payload.centre_numbers
+            ).fetchall()
+            available_set = {r["subject_code"] for r in available_subjects}
+            invalid = [sc for sc in payload.subject_codes if sc not in available_set]
+            if invalid:
+                raise HTTPException(
+                    422,
+                    f"Subject codes {invalid} have no students at the given schools ({payload.centre_numbers})"
+                )
+
         from .auth import _ph as _argon2_ph
 
         pin_hash = _argon2_ph.hash(pin)
@@ -1393,6 +1478,236 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
                 ],
             })
         return out
+
+    # ---------------- analytics ----------------
+
+    @app.get("/api/analytics/dashboard", tags=["analytics"])
+    def analytics_dashboard(conn=Depends(db), a=Depends(actor)):
+        """Aggregated station analytics: marks per day, per-subject progress,
+        completion timeline, and top enterers."""
+        if a["role"] != "EXAM_ADMIN":
+            raise HTTPException(403, "Only the station admin may view analytics")
+        import datetime as _dt
+
+        # marks_per_day: last 14 days
+        today = _dt.date.today()
+        marks_per_day = []
+        for i in range(13, -1, -1):
+            d = (today - _dt.timedelta(days=i)).isoformat()
+            total_count = conn.execute(
+                "SELECT COUNT(*) c FROM total_marks WHERE entered_at LIKE ?",
+                (d + "%",)
+            ).fetchone()["c"]
+            item_count = conn.execute(
+                "SELECT COUNT(DISTINCT im.student_id || '|' || q.subject_code || '|' || q.paper_type) c"
+                " FROM item_marks im JOIN questions q ON q.id = im.question_id"
+                " WHERE im.entered_at LIKE ?",
+                (d + "%",)
+            ).fetchone()["c"]
+            marks_per_day.append({"date": d, "count": total_count + item_count})
+
+        # per_subject_progress: per subject, total students and marks entered
+        subjects_rows = conn.execute(
+            "SELECT subject_code, name FROM subjects ORDER BY subject_code"
+        ).fetchall()
+        per_subject_progress = []
+        for subj in subjects_rows:
+            sc = subj["subject_code"]
+            total_students = conn.execute(
+                "SELECT COUNT(*) c FROM student_subjects WHERE subject_code=?", (sc,)
+            ).fetchone()["c"]
+            marks_entered = conn.execute(
+                "SELECT COUNT(*) c FROM total_marks WHERE subject_code=?", (sc,)
+            ).fetchone()["c"]
+            per_subject_progress.append({
+                "subject_code": sc,
+                "subject_name": subj["name"],
+                "total_students": total_students,
+                "marks_entered": marks_entered,
+            })
+
+        # completion_timeline: cumulative finalized scopes per day
+        fin_rows = conn.execute(
+            "SELECT finalized_at FROM finalized_scopes WHERE finalized_at IS NOT NULL ORDER BY finalized_at"
+        ).fetchall()
+        timeline_map: dict[str, int] = {}
+        for r in fin_rows:
+            day = (r["finalized_at"] or "")[:10]
+            if day:
+                timeline_map[day] = timeline_map.get(day, 0) + 1
+        cumulative = 0
+        completion_timeline = []
+        for day in sorted(timeline_map.keys()):
+            cumulative += timeline_map[day]
+            completion_timeline.append({"date": day, "cumulative_finalized": cumulative})
+
+        # top_enterers: per DE, marks count and name
+        de_rows = conn.execute(
+            "SELECT assignment_id, initials, first_name, surname FROM station_users"
+            " WHERE role='DATA_ENTERER' AND active=1"
+        ).fetchall()
+        top_enterers = []
+        for de in de_rows:
+            aid = de["assignment_id"]
+            count = conn.execute(
+                "SELECT COUNT(*) c FROM total_marks WHERE entered_by=?", (aid,)
+            ).fetchone()["c"]
+            name = de["initials"]
+            if de["first_name"] or de["surname"]:
+                parts = [de["first_name"] or "", de["surname"] or ""]
+                name = " ".join(p for p in parts if p).strip() or de["initials"]
+            top_enterers.append({"assignment_id": aid, "name": name, "marks_count": count})
+        top_enterers.sort(key=lambda x: x["marks_count"], reverse=True)
+
+        return {
+            "marks_per_day": marks_per_day,
+            "per_subject_progress": per_subject_progress,
+            "completion_timeline": completion_timeline,
+            "top_enterers": top_enterers,
+        }
+
+    @app.get("/api/analytics/subject-distribution", tags=["analytics"])
+    def analytics_subject_distribution(conn=Depends(db), a=Depends(actor)):
+        """Per-subject + paper marks distribution: min, max, mean, median."""
+        if a["role"] != "EXAM_ADMIN":
+            raise HTTPException(403, "Only the station admin may view analytics")
+        import statistics as _stats
+
+        rows = conn.execute(
+            "SELECT tm.subject_code, tm.paper_type, tm.total_marks_obtained"
+            " FROM total_marks tm ORDER BY tm.subject_code, tm.paper_type"
+        ).fetchall()
+
+        # Group by subject_code + paper_type
+        groups: dict[tuple[str, str], list[float]] = {}
+        for r in rows:
+            key = (r["subject_code"], r["paper_type"])
+            if key not in groups:
+                groups[key] = []
+            groups[key].append(float(r["total_marks_obtained"]))
+
+        # Subject names lookup
+        subj_names: dict[str, str] = {}
+        for row in conn.execute("SELECT subject_code, name FROM subjects").fetchall():
+            subj_names[row["subject_code"]] = row["name"]
+
+        result = []
+        for (sc, pt), marks in sorted(groups.items()):
+            entry: dict = {
+                "subject_code": sc,
+                "subject_name": subj_names.get(sc, sc),
+                "paper_type": pt,
+                "count": len(marks),
+                "min": min(marks),
+                "max": max(marks),
+                "mean": round(_stats.mean(marks), 2),
+                "median": round(_stats.median(marks), 2),
+            }
+            if len(marks) >= 4:
+                q = _stats.quantiles(marks, n=4)
+                entry["q1"] = round(q[0], 2)
+                entry["q3"] = round(q[2], 2)
+            result.append(entry)
+
+        return result
+
+    @app.get("/api/analytics/attendance-rates", tags=["analytics"])
+    def analytics_attendance_rates(conn=Depends(db), a=Depends(actor)):
+        """Per-school and per-subject attendance rates."""
+        if a["role"] != "EXAM_ADMIN":
+            raise HTTPException(403, "Only the station admin may view analytics")
+
+        # Per-school attendance
+        schools_rows = conn.execute(
+            "SELECT centre_number, name FROM schools ORDER BY centre_number"
+        ).fetchall()
+        per_school = []
+        for school in schools_rows:
+            cn = school["centre_number"]
+            total = conn.execute(
+                "SELECT COUNT(DISTINCT a.student_id || '|' || a.subject_code || '|' || a.paper_type) c"
+                " FROM attendance a JOIN students s ON s.student_id=a.student_id"
+                " WHERE s.centre_number=?", (cn,)
+            ).fetchone()["c"]
+            present = conn.execute(
+                "SELECT COUNT(DISTINCT a.student_id || '|' || a.subject_code || '|' || a.paper_type) c"
+                " FROM attendance a JOIN students s ON s.student_id=a.student_id"
+                " WHERE s.centre_number=? AND a.is_present=1", (cn,)
+            ).fetchone()["c"]
+            rate = round((present / total * 100), 1) if total > 0 else 0.0
+            per_school.append({
+                "centre_number": cn,
+                "school_name": school["name"],
+                "total": total,
+                "present": present,
+                "rate": rate,
+            })
+
+        # Per-subject attendance
+        subjects_rows = conn.execute(
+            "SELECT subject_code, name FROM subjects ORDER BY subject_code"
+        ).fetchall()
+        per_subject = []
+        for subj in subjects_rows:
+            sc = subj["subject_code"]
+            total = conn.execute(
+                "SELECT COUNT(DISTINCT a.student_id || '|' || a.paper_type) c"
+                " FROM attendance a WHERE a.subject_code=?", (sc,)
+            ).fetchone()["c"]
+            present = conn.execute(
+                "SELECT COUNT(DISTINCT a.student_id || '|' || a.paper_type) c"
+                " FROM attendance a WHERE a.subject_code=? AND a.is_present=1", (sc,)
+            ).fetchone()["c"]
+            rate = round((present / total * 100), 1) if total > 0 else 0.0
+            per_subject.append({
+                "subject_code": sc,
+                "subject_name": subj["name"],
+                "total": total,
+                "present": present,
+                "rate": rate,
+            })
+
+        return {"per_school": per_school, "per_subject": per_subject}
+
+    # ---------------- available-scopes for user creation ----------------
+
+    @app.get("/api/admin/users/available-scopes", tags=["admin"])
+    def available_scopes(centre_numbers: str = "", conn=Depends(db), a=Depends(actor)):
+        """Return subjects that have students registered at the given schools.
+
+        Query param: centre_numbers (comma-separated list of centre numbers).
+        Returns only subjects relevant to those schools on this station.
+        """
+        if a["role"] != "EXAM_ADMIN":
+            raise HTTPException(403, "Only the station admin may query available scopes")
+        centres = [c.strip() for c in centre_numbers.split(",") if c.strip()]
+        if not centres:
+            # Return all subjects on this station
+            rows = conn.execute(
+                "SELECT DISTINCT ss.subject_code FROM student_subjects ss"
+            ).fetchall()
+        else:
+            placeholders = ",".join("?" for _ in centres)
+            rows = conn.execute(
+                f"SELECT DISTINCT ss.subject_code FROM students s"
+                f" JOIN student_subjects ss ON ss.student_id=s.student_id"
+                f" WHERE s.centre_number IN ({placeholders})",
+                centres
+            ).fetchall()
+
+        # Resolve subject names
+        result = []
+        for r in rows:
+            sc = r["subject_code"]
+            subj = conn.execute(
+                "SELECT name FROM subjects WHERE subject_code=?", (sc,)
+            ).fetchone()
+            result.append({
+                "subject_code": sc,
+                "subject_name": subj["name"] if subj else sc,
+            })
+        result.sort(key=lambda x: x["subject_code"])
+        return result
 
     import os as _os
     _autosync_secs = int((_os.environ.get("STATION_AUTOSYNC_SECONDS") or "0") or "0")

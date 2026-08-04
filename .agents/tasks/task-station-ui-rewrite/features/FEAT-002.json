@@ -2,7 +2,7 @@
   "id": "FEAT-002",
   "type": "feat",
   "description": "Backend API additions - Add analytics endpoints and fix scoping bugs in existing endpoints. This provides the data layer for the new rich dashboard, reports page, and properly scoped user management.",
-  "status": "pending",
+  "status": "in_progress",
   "steps": [
     "In station/main.py, add GET /api/analytics/dashboard endpoint that returns: marks_per_day (last 14 days), per_subject_progress (marks entered vs total per subject), completion_timeline (cumulative finalized scopes over time), top_enterers (marks count per DE).",
     "In station/main.py, add GET /api/analytics/subject-distribution endpoint that returns per-subject marks distribution (min, max, mean, median, quartiles) for each subject+paper on the station.",
