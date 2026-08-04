@@ -19,6 +19,11 @@ from itsdangerous import BadSignature, URLSafeTimedSerializer
 _ph = PasswordHasher()
 
 
+def hash_secret(plaintext: str) -> str:
+    """Argon2 hash of a plaintext secret (PIN or password)."""
+    return _ph.hash(plaintext)
+
+
 def _verify(hashed: str | None, plaintext: str) -> bool:
     if not hashed:
         return False
@@ -82,8 +87,17 @@ class SessionManager:
         self._s = URLSafeTimedSerializer(secret_key, salt="lazeims-station-session")
         self._max_age = max_age
 
-    def issue(self, user_id: int, role: str) -> str:
-        return self._s.dumps({"uid": user_id, "role": role})
+    def issue(self, user_id: int, role: str, *,
+              station_code: str | None = None, exam_id: str | None = None) -> str:
+        """Sign and return a session token.
+
+        Includes the station identity (``sc`` / ``xi``) so a token cannot be
+        replayed on a different station on the same computer — the payload is
+        verified by :func:`station.main.create_app`'s ``current`` dependency
+        against the currently-active station.
+        """
+        payload = {"uid": user_id, "role": role, "sc": station_code, "xi": exam_id}
+        return self._s.dumps(payload)
 
     def resolve(self, token: str) -> dict | None:
         if not token:

@@ -8,28 +8,57 @@ Serves a fully-local static shell (no CDN) and a small local API:
     POST /api/login/admin  -> Station Exam Admin login (password)
     GET  /api/me           -> current local session identity
     GET  /api/status       -> imported package summary
+
+Multi-station design (one computer, many station identities):
+
+  Config is resolved *live* on every request via
+  :func:`station.config.resolve_active_cfg`. The active station is recorded in
+  ``stations/.active`` and can be switched at runtime without restarting the
+  server. Each station has its own SQLite DB, its own users, its own session
+  HMAC secret — so a cookie signed by station A cannot be replayed on
+  station B, even on the same computer.
 """
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
-from fastapi import Cookie, Depends, FastAPI, File, HTTPException, Response, UploadFile
+from fastapi import Body, Cookie, Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import SOFTWARE_VERSION
+from . import SOFTWARE_VERSION, paths
 from . import entry as entry_svc
 from . import finalize as finalize_svc
 from . import locking, outbox
-from .auth import SessionManager, authenticate_admin, authenticate_de
-from .config import StationConfig, load_config
+from . import package_import
+from .auth import (
+    SessionManager,
+    authenticate_admin,
+    authenticate_de,
+    de_scopes_for,
+    is_scope_allowed,
+)
+from .capabilities import capabilities_for
+from .config import (
+    StationConfig,
+    invalidate_active_cfg,
+    list_available_stations as _live_list_stations,
+    load_config,
+    resolve_active_cfg,
+    set_active_station,
+    read_active_station,
+)
 from .db import connect
 from .migrations import PackageImportError, apply_migrations, import_package
 
 from lazeims_common.enums import FillingMode, PaperType
 from lazeims_common.errors import ValidationError
+
+# Cookie name is stable across stations (only its signed value varies).
+SESSION_COOKIE = "lazeims_station_session"
 
 _STATIC = Path(__file__).parent / "static"
 
@@ -104,66 +133,134 @@ class CreateUserIn(BaseModel):
     subject_codes: list[str] | None = None
 
 
-def create_app(config: StationConfig | None = None) -> FastAPI:
-    cfg = config or load_config()
-    # Prepare DB + schema at startup (safe to call repeatedly).
-    conn = connect(cfg.db_path)
-    apply_migrations(conn)
-    conn.close()
+class StationSwitchIn(BaseModel):
+    station_code: str
+    exam_id: str
 
-    # Auto-import any package(s) shipped inside station_data/import/ or
-    # pre-staged in stations/<code>/exams/<id>/imports/pending/.
+
+def create_app(config: StationConfig | None = None) -> FastAPI:
+    # ── Runtime mode ─────────────────────────────────────────────────────────
+    #
+    #   • fixed_cfg  → tests inject a StationConfig. Single-station forever.
+    #   • home_root  → production. Active station is resolved live per request
+    #                  from ``stations/.active`` and can be switched at runtime.
+    #
+    fixed_cfg: StationConfig | None = config
+    home_root: Path | None = None if fixed_cfg else paths.lazeims_home()
+
+    def _live_cfg() -> StationConfig:
+        return fixed_cfg if fixed_cfg is not None else resolve_active_cfg(home_root)
+
+    # Per-station SessionManager cache. Keyed by (station_code, exam_id) so
+    # a cookie signed with station A's secret cannot possibly validate as a
+    # session for station B — even on the same computer.
+    _sm_cache: dict[tuple[str, str], SessionManager] = {}
+    _sm_secrets: dict[tuple[str, str], str] = {}
+    _sm_lock = threading.Lock()
+
+    def _sessions_for(cfg: StationConfig) -> SessionManager:
+        key = (cfg.station_code or "", cfg.exam_id or "")
+        with _sm_lock:
+            sm = _sm_cache.get(key)
+            if sm is None or _sm_secrets.get(key) != cfg.secret_key:
+                sm = SessionManager(cfg.secret_key, cfg.session_ttl_seconds)
+                _sm_cache[key] = sm
+                _sm_secrets[key] = cfg.secret_key
+            return sm
+
+    # ── One-time boot ────────────────────────────────────────────────────────
+    boot_cfg = _live_cfg()
+    if boot_cfg.station_code or fixed_cfg is not None:
+        _c = connect(boot_cfg.db_path)
+        try:
+            apply_migrations(_c)
+        finally:
+            _c.close()
+
+    # Auto-import any packages pre-staged in imports/pending. In production
+    # (multi-station) mode this discovers pending zips under every known
+    # station directory so a fresh install with a bundle drops in works
+    # automatically. In test mode we only touch the injected cfg.
     from .auto_import import auto_import_pending
 
-    import_results = auto_import_pending(cfg)
-    for r in import_results:
-        print(f"[auto-import] {r.get('file')}: {r.get('status')}"
-              + (f" ({r.get('students')} students)" if r.get("status") == "imported" else "")
-              + (f" — {r.get('code')}: {r.get('message')}" if r.get("status") in {"rejected", "error"} else ""))
+    if fixed_cfg is None:
+        import_results = auto_import_pending(boot_cfg)
+        for r in import_results:
+            print(f"[auto-import] {r.get('file')}: {r.get('status')}"
+                  + (f" ({r.get('students')} students)" if r.get("status") == "imported" else "")
+                  + (f" — {r.get('code')}: {r.get('message')}" if r.get("status") in {"rejected", "error"} else ""))
 
-    # If we were on a fresh install (no station known) and just imported a
-    # package, reload config so we use the correct per-exam database rather
-    # than the temporary setup/ database.
-    if config is None and any(r.get("status") == "imported" for r in import_results):
-        cfg = load_config()
-        conn = connect(cfg.db_path)
-        apply_migrations(conn)
-        conn.close()
-        print(f"[auto-import] config reloaded: station={cfg.station_code} exam={cfg.exam_id}")
-
-    # Seed a default Central URL from the bundle (station_data/sync.json) so the
-    # station knows where to sync; the admin still supplies the secret sync key.
-    try:
-        import json as _json
-        sync_file = cfg.data_dir / "sync.json"
-        if sync_file.is_file():
-            url = (_json.loads(sync_file.read_text() or "{}") or {}).get("central_url")
-            if url:
-                from .sync_http import seed_central_url_if_unset
-                _c = connect(cfg.db_path)
+        # If we started with no active station but the import created a new
+        # per-exam DB, invalidate the cache and re-migrate at the correct path.
+        if any(r.get("status") == "imported" for r in import_results):
+            invalidate_active_cfg(home_root)
+            boot_cfg = _live_cfg()
+            if boot_cfg.station_code:
+                _c = connect(boot_cfg.db_path)
                 try:
-                    seed_central_url_if_unset(_c, url)
+                    apply_migrations(_c)
                 finally:
                     _c.close()
+                print(f"[auto-import] active station now: station={boot_cfg.station_code} exam={boot_cfg.exam_id}")
+
+    # Seed a default Central URL from the bundle so sync works out of the box.
+    try:
+        import json as _json
+        if boot_cfg.station_code or fixed_cfg is not None:
+            sync_file = boot_cfg.data_dir / "sync.json"
+            if sync_file.is_file():
+                url = (_json.loads(sync_file.read_text() or "{}") or {}).get("central_url")
+                if url:
+                    from .sync_http import seed_central_url_if_unset
+                    _c = connect(boot_cfg.db_path)
+                    try:
+                        seed_central_url_if_unset(_c, url)
+                    finally:
+                        _c.close()
     except Exception as exc:  # never block boot on this
         print(f"[sync] could not seed central_url: {exc}")
 
-    sessions = SessionManager(cfg.secret_key, cfg.session_ttl_seconds)
+    # ── FastAPI app ──────────────────────────────────────────────────────────
     app = FastAPI(title="LAZEIMS Station", version=SOFTWARE_VERSION)
-    app.state.cfg = cfg
-    app.state.sessions = sessions
+    app.state.home = home_root
+    app.state.fixed_cfg = fixed_cfg
+    app.state.live_cfg = _live_cfg
+    app.state.sessions_for = _sessions_for
 
-    def db():
-        conn = connect(cfg.db_path)
+    # ── Dependencies (all evaluate cfg LIVE per request) ─────────────────────
+
+    def cfg_dep() -> StationConfig:
+        return _live_cfg()
+
+    def db(cfg: StationConfig = Depends(cfg_dep)):
+        # In production mode, refuse DB access when no station is chosen.
+        if not cfg.station_code and fixed_cfg is None:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "NO_ACTIVE_STATION",
+                        "message": "No station is selected on this device."},
+            )
+        c = connect(cfg.db_path)
         try:
-            yield conn
+            yield c
         finally:
-            conn.close()
+            c.close()
 
-    def current(session=Cookie(default=None, alias=cfg.session_cookie)):
-        data = sessions.resolve(session or "")
+    def current(session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+                cfg: StationConfig = Depends(cfg_dep)):
+        if not cfg.station_code and fixed_cfg is None:
+            raise HTTPException(401, "No station selected")
+        sm = _sessions_for(cfg)
+        data = sm.resolve(session or "")
         if data is None:
             raise HTTPException(401, "Not authenticated")
+        # Belt-and-braces: session must belong to the currently-active station.
+        # (Cookies are signed with that station's secret, so a mismatched
+        # signature would already have failed above. This guards against edge
+        # cases like a cookie that was minted before the station was renamed.)
+        if fixed_cfg is None:
+            if data.get("sc") != cfg.station_code or data.get("xi") != cfg.exam_id:
+                raise HTTPException(401, "Session belongs to a different station")
         return data
 
     @app.get("/health", tags=["ops"])
@@ -171,76 +268,179 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
         return {"status": "ok", "software_version": SOFTWARE_VERSION}
 
     @app.get("/api/status", tags=["ops"])
-    def status(conn=Depends(db)):
-        row = conn.execute("SELECT value FROM station_meta WHERE key='station_code'").fetchone()
-        exam = conn.execute("SELECT value FROM station_meta WHERE key='exam_id'").fetchone()
-        pkgs = conn.execute("SELECT COUNT(*) c FROM packages").fetchone()["c"]
-        students = conn.execute("SELECT COUNT(*) c FROM students").fetchone()["c"]
+    def status(cfg: StationConfig = Depends(cfg_dep)):
+        """Public status probe. Works even before a station is selected."""
+        if not cfg.station_code and fixed_cfg is None:
+            return {
+                "station_code": None,
+                "exam_id": None,
+                "packages": 0,
+                "students": 0,
+                "software_version": SOFTWARE_VERSION,
+            }
+        conn = connect(cfg.db_path)
+        try:
+            row = conn.execute("SELECT value FROM station_meta WHERE key='station_code'").fetchone()
+            exam = conn.execute("SELECT value FROM station_meta WHERE key='exam_id'").fetchone()
+            pkgs = conn.execute("SELECT COUNT(*) c FROM packages").fetchone()["c"]
+            students = conn.execute("SELECT COUNT(*) c FROM students").fetchone()["c"]
+            return {
+                "station_code": row["value"] if row else None,
+                "exam_id": exam["value"] if exam else None,
+                "packages": pkgs,
+                "students": students,
+                "software_version": SOFTWARE_VERSION,
+            }
+        finally:
+            conn.close()
+
+    # ── Station switcher (no auth) ────────────────────────────────────────────
+
+    @app.get("/api/stations/available", tags=["setup"])
+    def list_available_stations():
+        """Scan disk for every station+exam pair present on this computer.
+
+        No auth required — this is the pre-login chooser. Returns the current
+        active pair (if any) so the UI can highlight it.
+        """
+        if fixed_cfg is not None:
+            # Single-station mode (tests): no chooser.
+            return {"stations": [], "active": None}
+        stations = _live_list_stations(home_root)
+        active = read_active_station(home_root)
+        return {"stations": stations, "active": active}
+
+    @app.post("/api/stations/switch", tags=["setup"])
+    def switch_station(payload: StationSwitchIn, response: Response):
+        """Select a different active station on this computer.
+
+        Writes ``stations/.active`` atomically and clears the current session
+        cookie so the user is forced to log in against the newly-selected
+        station's local users. No process restart, no session survives across
+        stations — cookies are per-station HMAC-signed.
+        """
+        if fixed_cfg is not None:
+            raise HTTPException(400, "Station switching is disabled in single-station mode")
+        try:
+            set_active_station(payload.station_code, payload.exam_id, home=home_root)
+        except ValueError as exc:
+            raise HTTPException(404, str(exc))
+
+        # Make sure the new station's DB is migrated (may have been imported
+        # by a different process or on a first boot).
+        new_cfg = _live_cfg()
+        _c = connect(new_cfg.db_path)
+        try:
+            apply_migrations(_c)
+        finally:
+            _c.close()
+
+        # Drop any lingering session cookie — the user must log in against the
+        # newly-selected station's local users.
+        response.delete_cookie(SESSION_COOKIE)
         return {
-            "station_code": row["value"] if row else None,
-            "exam_id": exam["value"] if exam else None,
-            "packages": pkgs,
-            "students": students,
-            "software_version": SOFTWARE_VERSION,
+            "switched": True,
+            "station_code": new_cfg.station_code,
+            "exam_id": new_cfg.exam_id,
         }
 
+    @app.post("/api/stations/refresh-imports", tags=["setup"])
+    def refresh_imports():
+        """Re-scan ``imports/pending`` for every known station and import.
+
+        Runs the same auto-import pass as boot. Useful after copying a new
+        exam package into the station folder while the server is running.
+        """
+        if fixed_cfg is not None:
+            raise HTTPException(400, "Import refresh is not applicable in single-station mode")
+        from .auto_import import auto_import_pending
+        # Kick off with the currently-resolved cfg (may be None-station).
+        results = auto_import_pending(_live_cfg())
+        # A fresh identity may have been adopted — force a reload.
+        invalidate_active_cfg(home_root)
+        return {"results": results, "active": read_active_station(home_root)}
+
     @app.post("/api/import", tags=["setup"])
-    async def do_import(
-        request_body: dict | None = None,
-        file: UploadFile | None = File(default=None),
-        conn=Depends(db),
-    ):
+    async def do_import(request: Request, conn=Depends(db)):
         """Import a signed exam package.
 
-        Accepts either a JSON bundle body (legacy path used by tests and the
-        auto-importer) or a ``multipart/form-data`` file upload containing the
-        signed ZIP produced by Central.
+        Accepts either:
+        - a JSON bundle body (Content-Type: application/json), used by tests
+          and the internal auto-importer, or
+        - a multipart/form-data file upload with a ``file`` field holding the
+          signed ZIP produced by Central.
+
+        The dispatch is by Content-Type so a single URL serves both.
         """
+        ctype = (request.headers.get("content-type") or "").lower()
         try:
-            if file is not None:
-                data = await file.read()
-                result = package_import.import_signed_zip(conn, data)
-            elif request_body is not None:
+            if "application/json" in ctype:
+                request_body = await request.json()
                 result = package_import.import_bundle(conn, request_body)
+            elif "multipart/form-data" in ctype:
+                form = await request.form()
+                upload = form.get("file")
+                if upload is None or not hasattr(upload, "read"):
+                    raise HTTPException(422, "Missing 'file' field in multipart body")
+                data = await upload.read()
+                result = package_import.import_signed_zip(conn, data)
             else:
-                raise HTTPException(422, "Provide either a JSON body or a ZIP upload")
+                raise HTTPException(
+                    422, "Provide application/json body or multipart/form-data file")
         except PackageImportError as exc:
             return JSONResponse(status_code=422,
                                 content={"error": {"code": exc.code, "message": exc.message}})
         return {"imported": True, **result}
 
     @app.post("/api/login/de", tags=["auth"])
-    def login_de(payload: DeLogin, response: Response, conn=Depends(db)):
+    def login_de(payload: DeLogin, response: Response,
+                 conn=Depends(db), cfg: StationConfig = Depends(cfg_dep)):
         user = authenticate_de(conn, payload.pin, payload.initials)
         if user is None:
             raise HTTPException(401, "Invalid PIN or initials")
-        token = sessions.issue(user["id"], "DATA_ENTERER")
-        response.set_cookie(cfg.session_cookie, token, httponly=True, samesite="lax",
+        sm = _sessions_for(cfg)
+        token = sm.issue(user["id"], "DATA_ENTERER",
+                         station_code=cfg.station_code, exam_id=cfg.exam_id)
+        response.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="lax",
                             max_age=cfg.session_ttl_seconds)
-        return {"role": "DATA_ENTERER", "initials": user["initials"], "assignment_id": user["assignment_id"]}
+        return {
+            "role": "DATA_ENTERER",
+            "initials": user["initials"],
+            "assignment_id": user["assignment_id"],
+            "station_code": cfg.station_code,
+            "exam_id": cfg.exam_id,
+            "capabilities": capabilities_for("DATA_ENTERER"),
+        }
 
     @app.post("/api/login/admin", tags=["auth"])
-    def login_admin(payload: AdminLogin, response: Response, conn=Depends(db)):
+    def login_admin(payload: AdminLogin, response: Response,
+                    conn=Depends(db), cfg: StationConfig = Depends(cfg_dep)):
         user = authenticate_admin(conn, payload.username, payload.password)
         if user is None:
             raise HTTPException(401, "Invalid username or password")
-        token = sessions.issue(user["id"], "EXAM_ADMIN")
-        response.set_cookie(cfg.session_cookie, token, httponly=True, samesite="lax",
+        sm = _sessions_for(cfg)
+        token = sm.issue(user["id"], "EXAM_ADMIN",
+                         station_code=cfg.station_code, exam_id=cfg.exam_id)
+        response.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="lax",
                             max_age=cfg.session_ttl_seconds)
         return {
             "role": "EXAM_ADMIN",
             "assignment_id": user["assignment_id"],
             "username": user.get("admin_username") or user.get("initials"),
+            "station_code": cfg.station_code,
+            "exam_id": cfg.exam_id,
+            "capabilities": capabilities_for("EXAM_ADMIN"),
         }
 
     @app.post("/api/logout", tags=["auth"])
     def logout(response: Response):
-        response.delete_cookie(cfg.session_cookie)
+        response.delete_cookie(SESSION_COOKIE)
         return {"ok": True}
 
     @app.post("/api/admin/reset-password", tags=["auth"])
-    def reset_admin_password(payload: dict, conn=Depends(db)):
-        """Reset station admin password using machine credential secret as proof.
+    def reset_admin_password(payload: dict,
+                             conn=Depends(db), cfg: StationConfig = Depends(cfg_dep)):
+        """Reset station admin password using the machine credential as proof.
         Body: { machine_secret: str, new_password: str }
         """
         from .machine_credential import load as _load_mc
@@ -270,7 +470,6 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
         if updated == 0:
             raise HTTPException(404, "No active admin user found")
 
-        # Also return the username so the caller knows what to use
         row = conn.execute(
             "SELECT admin_username, initials FROM station_users WHERE role = 'EXAM_ADMIN' AND active = 1 LIMIT 1"
         ).fetchone()
@@ -278,8 +477,14 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
         return {"ok": True, "username": username}
 
     @app.get("/api/me", tags=["auth"])
-    def me(session=Depends(current)):
-        return session
+    def me(session=Depends(current), cfg: StationConfig = Depends(cfg_dep)):
+        role = session.get("role") or ""
+        return {
+            **session,
+            "station_code": cfg.station_code,
+            "exam_id": cfg.exam_id,
+            "capabilities": capabilities_for(role),
+        }
 
     # ---------------- entry ----------------
 
@@ -307,15 +512,20 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
                 allowed, centre_number=r["centre_number"], subject_code=r["subject_code"]
             ):
                 continue
-            subj = conn.execute("SELECT total_theory1, total_theory2, total_practical FROM subjects WHERE subject_code=?",
+            subj = conn.execute("SELECT name, total_theory1, total_theory2, total_practical FROM subjects WHERE subject_code=?",
                                 (r["subject_code"],)).fetchone()
+            school = conn.execute("SELECT name FROM schools WHERE centre_number = ?", (r["centre_number"],)).fetchone()
             papers = ["THEORY1"] + (["THEORY2"] if subj and subj["total_theory2"] else []) + (["PRACTICAL"] if subj and subj["total_practical"] else [])
             for p in papers:
                 key = locking.scope_key(r["centre_number"], r["subject_code"], p)
                 lock = conn.execute("SELECT owner, status FROM work_locks WHERE scope_key=?", (key,)).fetchone()
                 fin = conn.execute("SELECT 1 FROM finalized_scopes WHERE scope_key=?", (key,)).fetchone()
                 out.append({
-                    "centre_number": r["centre_number"], "subject_code": r["subject_code"], "paper_type": p,
+                    "centre_number": r["centre_number"],
+                    "school_name": school["name"] if school else r["centre_number"],
+                    "subject_code": r["subject_code"],
+                    "subject_name": subj["name"] if subj else r["subject_code"],
+                    "paper_type": p,
                     "lock_status": (lock["status"] if lock else None),
                     "lock_owner": (lock["owner"] if lock else None),
                     "finalized": fin is not None,
@@ -329,7 +539,7 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
             if not is_scope_allowed(allowed, centre_number=centre_number, subject_code=subject_code):
                 raise HTTPException(403, "Scope not permitted for this data enterer")
         students = conn.execute(
-            "SELECT s.student_id, s.first_name, s.surname FROM students s"
+            "SELECT s.student_id, s.first_name, s.middle_name, s.surname FROM students s"
             " JOIN student_subjects ss ON ss.student_id = s.student_id"
             " WHERE s.centre_number = ? AND ss.subject_code = ? ORDER BY s.student_id",
             (centre_number, subject_code),
@@ -343,7 +553,12 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
                 "SELECT 1 FROM total_marks WHERE student_id=? AND subject_code=? AND paper_type=?",
                 (st["student_id"], subject_code, paper_type.value)).fetchone()
             result.append({
-                "student_id": st["student_id"], "first_name": st["first_name"], "surname": st["surname"],
+                "student_id": st["student_id"],
+                "full_name": (
+                    (st["first_name"] or "").strip().upper()
+                    + (" " + (st["middle_name"] or "").strip().upper() if st["middle_name"] else "")
+                    + " " + (st["surname"] or "").strip().upper()
+                ).strip(),
                 "attendance": (None if att is None else bool(att["is_present"])),
                 "has_marks": has_total is not None,
             })
@@ -429,6 +644,93 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
         except ValidationError as e:
             return _verr(e)
         return {"result": result}
+
+    @app.get("/api/scopes/report", tags=["entry"])
+    def scope_report(centre_number: str, subject_code: str, paper_type: PaperType, conn=Depends(db), a=Depends(actor)):
+        """Generate marks report data for printing."""
+        from .entry import exam_id as get_exam_id, _attendance_rows
+        from lazeims_common.validation.attendance import effective_attendance, AttendanceRow
+
+        eid = get_exam_id(conn)
+        exam_row = conn.execute("SELECT value FROM station_meta WHERE key='exam_name'").fetchone()
+        exam_name = exam_row["value"] if exam_row else eid
+
+        school_row = conn.execute("SELECT school_name FROM schools WHERE centre_number=?", (centre_number,)).fetchone()
+        school_name = school_row["school_name"] if school_row else centre_number
+
+        sub_row = conn.execute("SELECT name FROM subjects WHERE code=?", (subject_code,)).fetchone()
+        subject_name = sub_row["name"] if sub_row else subject_code
+
+        # Total possible
+        config_row = conn.execute(
+            "SELECT total_marks_theory1, total_marks_theory2, total_marks_practical FROM exam_subjects WHERE subject_code=?",
+            (subject_code,)
+        ).fetchone()
+        total_possible = 100
+        if config_row:
+            if paper_type.value == "THEORY1":
+                total_possible = config_row["total_marks_theory1"]
+            elif paper_type.value == "THEORY2":
+                total_possible = config_row["total_marks_theory2"]
+            elif paper_type.value == "PRACTICAL":
+                total_possible = config_row["total_marks_practical"]
+
+        # Questions
+        q_rows = conn.execute(
+            "SELECT question_number, max_marks FROM questions WHERE subject_code=? AND paper_type=? ORDER BY question_number",
+            (subject_code, paper_type.value)
+        ).fetchall()
+        questions = [{"number": str(q["question_number"]), "max_marks": float(q["max_marks"])} for q in q_rows]
+
+        # Students
+        students_rows = conn.execute(
+            "SELECT s.student_id, s.full_name FROM students s JOIN student_subjects ss ON ss.student_id = s.student_id WHERE ss.subject_code=? AND s.centre_number=? ORDER BY s.student_id",
+            (subject_code, centre_number)
+        ).fetchall()
+
+        out = []
+        for st in students_rows:
+            sid = st["student_id"]
+            # Attendance
+            att_rows = _attendance_rows(conn, sid, subject_code)
+            is_present = effective_attendance(att_rows, paper_type)
+
+            # Total marks
+            tm = conn.execute(
+                "SELECT total_marks_obtained FROM total_marks WHERE student_id=? AND subject_code=? AND paper_type=?",
+                (sid, subject_code, paper_type.value)
+            ).fetchone()
+
+            # Item marks
+            item_marks = None
+            if q_rows:
+                im_rows = conn.execute(
+                    "SELECT question_number, marks_obtained FROM item_marks WHERE student_id=? AND subject_code=? AND paper_type=?",
+                    (sid, subject_code, paper_type.value)
+                ).fetchall()
+                item_marks = {str(r["question_number"]): float(r["marks_obtained"]) if r["marks_obtained"] is not None else None for r in im_rows}
+
+            out.append({
+                "student_id": sid,
+                "full_name": st["full_name"],
+                "attendance": is_present,
+                "total_marks": float(tm["total_marks_obtained"]) if tm else None,
+                "item_marks": item_marks,
+            })
+
+        return {
+            "exam_name": exam_name,
+            "school_name": school_name,
+            "centre_number": centre_number,
+            "subject_code": subject_code,
+            "subject_name": subject_name,
+            "paper_type": paper_type.value,
+            "total_possible": total_possible,
+            "enterer_initials": None,
+            "finalized_at": None,
+            "questions": questions if questions else None,
+            "students": out,
+        }
 
     @app.get("/api/scopes/validation", tags=["entry"])
     def scope_validation(centre_number: str, subject_code: str, paper_type: PaperType, conn=Depends(db), a=Depends(actor)):
@@ -545,10 +847,81 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
             "per_school": per_school,
         }
 
+    # ---------------- audit ----------------
+
+    @app.get("/api/audit/marks", tags=["audit"])
+    def audit_marks(
+        student_id: str | None = None,
+        subject_code: str | None = None,
+        paper_type: str | None = None,
+        from_date: str | None = None,
+        to_date: str | None = None,
+        limit: int = 100,
+        conn=Depends(db), a=Depends(actor),
+    ):
+        if a["role"] != "EXAM_ADMIN":
+            raise HTTPException(403, "Admin only")
+        if limit > 500:
+            limit = 500
+
+        query = "SELECT * FROM marks_audit WHERE 1=1"
+        params = []
+        if student_id:
+            query += " AND student_id = ?"
+            params.append(student_id)
+        if subject_code:
+            query += " AND subject_code = ?"
+            params.append(subject_code)
+        if paper_type:
+            query += " AND paper_type = ?"
+            params.append(paper_type)
+        if from_date:
+            query += " AND station_occurred_at >= ?"
+            params.append(from_date)
+        if to_date:
+            query += " AND station_occurred_at <= ?"
+            params.append(to_date + "T23:59:59")
+        query += " ORDER BY station_occurred_at DESC LIMIT ?"
+        params.append(limit)
+
+        rows = conn.execute(query, params).fetchall()
+        # Resolve actor initials
+        result = []
+        for r in rows:
+            actor_name = None
+            if r["actor_assignment_id"]:
+                u = conn.execute(
+                    "SELECT initials FROM station_users WHERE assignment_id = ?",
+                    (r["actor_assignment_id"],)
+                ).fetchone()
+                actor_name = u["initials"] if u else None
+            result.append({
+                "id": r["id"],
+                "student_id": r["student_id"],
+                "subject_code": r["subject_code"],
+                "paper_type": r["paper_type"],
+                "operation": r["operation"],
+                "mode": r["mode"],
+                "before_total": r["before_total"],
+                "before_items": r["before_items"],
+                "after_total": r["after_total"],
+                "after_items": r["after_items"],
+                "actor_initials": actor_name,
+                "station_occurred_at": r["station_occurred_at"],
+                "event_id": r["event_id"],
+            })
+        return result
+
     # ---------------- sync (push outbox to Central) ----------------
 
     def _sync_once() -> dict:
-        conn = connect(cfg.db_path)
+        # Sync is best-effort and runs in background; resolve cfg fresh so a
+        # mid-session switch never sends a station's outbox to a different
+        # station's DB.
+        _cfg = _live_cfg()
+        if not _cfg.station_code:
+            return {"synced": False, "reason": "no active station"}
+        conn = connect(_cfg.db_path)
         try:
             from .sync_http import run_http_sync
             return run_http_sync(conn)
@@ -608,6 +981,120 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
         with transaction(conn):
             count = outbox.retry_rejected(conn)
         return {"queued": count}
+
+    @app.post("/api/sync/pull-snapshot", tags=["sync"])
+    def sync_pull_snapshot(conn=Depends(db), a=Depends(actor)):
+        if a["role"] != "EXAM_ADMIN":
+            raise HTTPException(403, "Only the station admin may pull snapshots")
+        from .sync_http import _meta_get
+        from . import machine_credential as mc_mod
+        import json as _json
+        import urllib.request
+        import urllib.error
+
+        central_url = _meta_get(conn, "central_url")
+        station_code = _meta_get(conn, "station_code")
+        exam_id_val = _meta_get(conn, "exam_id")
+        if not central_url or not station_code or not exam_id_val:
+            return {"configured": False, "reason": "Central URL or station not configured"}
+
+        cred = mc_mod.load(station_code, exam_id_val)
+        if not cred:
+            return {"configured": False, "reason": "No machine credential found"}
+
+        url = central_url.rstrip("/") + f"/api/v1/station/sync/pull/snapshot?station_code={station_code}"
+        req = urllib.request.Request(
+            url, method="GET",
+            headers={
+                "X-Package-Credential-Id": cred["credential_id"],
+                "X-Package-Secret": cred["secret"],
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return _json.loads(resp.read().decode("utf-8") or "{}")
+        except urllib.error.HTTPError as exc:
+            payload = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
+            raise HTTPException(502, f"Central returned {exc.code}: {payload}")
+        except urllib.error.URLError as exc:
+            raise HTTPException(502, f"Cannot reach Central: {exc.reason}")
+
+    @app.get("/api/sync/local-digests", tags=["sync"])
+    def sync_local_digests(conn=Depends(db), a=Depends(actor)):
+        if a["role"] != "EXAM_ADMIN":
+            raise HTTPException(403, "Admin only")
+        from .sync import compute_reconciliation
+        return compute_reconciliation(conn)
+
+    @app.get("/api/sync/export-outbox", tags=["sync"])
+    def sync_export_outbox(conn=Depends(db), a=Depends(actor)):
+        if a["role"] != "EXAM_ADMIN":
+            raise HTTPException(403, "Only the station admin may export outbox")
+        from .sync import export_pending_envelope
+        from .sync_http import _meta_get
+        from . import machine_credential as mc_mod
+
+        station_code = _meta_get(conn, "station_code")
+        exam_id_val = _meta_get(conn, "exam_id")
+        if not station_code or not exam_id_val:
+            return Response(status_code=204)
+
+        cred = mc_mod.load(station_code, exam_id_val)
+        if not cred:
+            raise HTTPException(503, "No machine credential")
+
+        token = export_pending_envelope(conn, key=cred["secret"])
+        if token is None:
+            return Response(status_code=204)
+
+        import io, zipfile, json as _json
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("envelope.json", _json.dumps({
+                "station_code": station_code,
+                "token": token,
+            }))
+        buf.seek(0)
+        return Response(
+            content=buf.getvalue(),
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="outbox_{station_code}.zip"'},
+        )
+
+    @app.post("/api/sync/import-ack", tags=["sync"])
+    async def sync_import_ack(
+        file: UploadFile = File(...),
+        conn=Depends(db), a=Depends(actor),
+    ):
+        if a["role"] != "EXAM_ADMIN":
+            raise HTTPException(403, "Only the station admin may import ack")
+        from .sync import apply_ack_envelope
+        from .sync_http import _meta_get
+        from . import machine_credential as mc_mod
+        import zipfile, io, json as _json
+
+        station_code = _meta_get(conn, "station_code")
+        exam_id_val = _meta_get(conn, "exam_id")
+        if not station_code or not exam_id_val:
+            raise HTTPException(422, "Station not configured")
+
+        cred = mc_mod.load(station_code, exam_id_val)
+        if not cred:
+            raise HTTPException(503, "No machine credential")
+
+        data = await file.read()
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                envelope = _json.loads(zf.read("envelope.json"))
+        except Exception as exc:
+            raise HTTPException(422, f"Invalid ack ZIP: {exc}")
+
+        ack_token = envelope.get("ack_token") or envelope.get("token")
+        if not ack_token:
+            raise HTTPException(422, "No ack_token found in envelope")
+
+        result = apply_ack_envelope(conn, key=cred["secret"], token=ack_token)
+        return result
 
     # ---------------- admin: user management ----------------
 

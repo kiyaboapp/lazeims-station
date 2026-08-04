@@ -347,8 +347,8 @@ button:disabled { opacity:.4; cursor:not-allowed; }
 .badge-locked { background:var(--warn-bg); color:var(--warn-fg); }
 
 /* ── ROSTER TABLE ───────────────────────────────────────────────── */
-.roster-wrap { overflow-x:auto; max-height:calc(100vh - 320px); overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius); }
-.roster-tbl { width:100%; border-collapse:collapse; font-size:13px; }
+.roster-wrap { overflow-x:auto; max-height:calc(100vh - 320px); overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius); -webkit-overflow-scrolling:touch; }
+.roster-tbl { width:100%; border-collapse:collapse; font-size:13px; min-width:400px; }
 .roster-tbl th {
   padding:9px 12px; text-align:left;
   border-bottom:2px solid var(--border);
@@ -358,11 +358,11 @@ button:disabled { opacity:.4; cursor:not-allowed; }
 .roster-tbl td { padding:8px 12px; border-bottom:1px solid var(--border); vertical-align:middle; }
 .roster-tbl tr:last-child td { border-bottom:none; }
 .roster-tbl tbody tr:hover td { background:var(--surface2); }
-.col-n     { width:40px; color:var(--muted); text-align:right; padding-right:14px; }
-.col-id    { font-family:ui-monospace,monospace; font-size:12px; color:var(--text2); }
-.col-att   { width:130px; text-align:center; }
-.col-marks { width:140px; }
-.col-st    { width:80px; }
+.col-n     { width:32px; color:var(--muted); text-align:right; padding-right:10px; }
+.col-id    { font-family:ui-monospace,monospace; font-size:12px; color:var(--text2); white-space:nowrap; }
+.col-att   { width:100px; text-align:center; }
+.col-marks { width:120px; }
+.col-st    { width:70px; }
 .row-absent td { background:color-mix(in srgb,var(--err-bg) 35%,transparent) !important; }
 .tbl-toolbar { display:flex; align-items:center; gap:12px; margin-bottom:10px; flex-wrap:wrap; }
 .td-empty { padding:32px; text-align:center; color:var(--muted); }
@@ -589,3 +589,63 @@ button:disabled { opacity:.4; cursor:not-allowed; }
 /* ── USER CARD EXTRAS ───────────────────────────────────────────── */
 .user-fullname { font-size:12px; color:var(--text2); margin-top:2px; }
 .user-phone { margin-bottom:8px; }
+
+/* ── MOBILE RESPONSIVE ──────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .roster-tbl { font-size:11px; }
+  .roster-tbl th { padding:6px 6px; font-size:9px; }
+  .roster-tbl td { padding:5px 6px; }
+  .col-n { width:24px; padding-right:4px; font-size:10px; }
+  .col-id { font-size:10px; }
+  .col-att { width:70px; }
+  .col-marks { width:90px; }
+  .col-st { width:50px; font-size:9px; }
+  .att-toggle { width:52px; height:24px; }
+  .att-knob { width:18px; height:18px; }
+  .att-p .att-knob { transform:translateX(30px); }
+  .att-a .att-knob { transform:translateX(3px); }
+  .att-lp,.att-la { font-size:8px; }
+  .marks-inp { width:70px; padding:4px 6px; font-size:12px; }
+  .entry-bar { padding:8px 10px; gap:8px; }
+  .entry-meta h2 { font-size:13px; }
+  .entry-statusbar { font-size:10px; gap:8px; }
+  .tab { padding:7px 12px; font-size:11px; }
+  .tab svg { width:12px; height:12px; }
+  .tbl-toolbar { gap:8px; }
+  .pt-school { max-width:120px; }
+  .portal-tbl th, .portal-tbl td { padding:6px 8px; }
+}
+
+/* ── Station picker ──────────────────────────────────────────────────────── */
+.station-picker { display:flex; flex-direction:column; gap:6px; margin-bottom:16px; }
+.station-option {
+  display:flex; flex-direction:column; align-items:flex-start; gap:2px;
+  padding:10px 14px; border:1.5px solid var(--border); border-radius:8px;
+  background:var(--card); cursor:pointer; text-align:left; transition:all .15s;
+}
+.station-option:hover { border-color:var(--primary); background:var(--primary-ghost,rgba(99,102,241,0.05)); }
+.station-option.active { border-color:var(--primary); background:var(--primary-ghost,rgba(99,102,241,0.08)); box-shadow:0 0 0 2px rgba(99,102,241,0.15); }
+.station-option strong { font-size:14px; color:var(--fg); }
+.station-option .muted { font-size:11px; color:var(--muted); }
+
+/* Multi-station additions */
+.station-empty {
+  border:1px dashed var(--border);
+  border-radius:10px;
+  padding:16px;
+  background:var(--card);
+  margin-bottom:12px;
+}
+.station-empty p { margin:0 0 6px; }
+.station-option .badge { margin-left:auto; }
+.who-label { display:inline-flex; align-items:center; gap:8px; }
+#switch-station-btn {
+  padding:2px 8px;
+  font-size:14px;
+  border:1px solid var(--border);
+  border-radius:6px;
+  background:transparent;
+  cursor:pointer;
+  color:var(--fg);
+}
+#switch-station-btn:hover { background:var(--primary-ghost, rgba(99,102,241,0.08)); border-color:var(--primary); }

@@ -45,7 +45,7 @@ $LanIp = ''
 
 # 1. Get-NetIPAddress: skip loopback, APIPA, and virtual/tunnel adapters
 try {
-    $LanIp = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+    $LanIp = [string](Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
         Where-Object {
             $_.IPAddress -ne '127.0.0.1' -and
             $_.IPAddress -notlike '169.254.*' -and
@@ -59,8 +59,9 @@ try {
                 default     { 2 }
             }
         } |
-        Select-Object -First 1 -ExpandProperty IPAddress
-} catch {}
+        Select-Object -First 1 -ExpandProperty IPAddress)
+    if ($LanIp -and $LanIp -notmatch '^\d{1,3}(\.\d{1,3}){3}$') { $LanIp = '' }
+} catch { $LanIp = '' }
 
 # 2. Python UDP trick: connect() to a private addr - no packet is ever sent,
 #    but the OS picks the correct source interface. Works fully offline.
@@ -94,7 +95,17 @@ if (-not $LanIp) {
     } catch {}
 }
 
-if (-not $LanIp) { $LanIp = '127.0.0.1' }
+if (-not $LanIp -or $LanIp -eq '' -or $LanIp -eq '127.0.0.1') {
+    try {
+        $hostEntry = [System.Net.Dns]::GetHostEntry([System.Net.Dns]::GetHostName())
+        $candidate = $hostEntry.AddressList |
+            Where-Object { $_.AddressFamily -eq 'InterNetwork' -and $_.ToString() -ne '127.0.0.1' } |
+            Select-Object -First 1
+        if ($candidate) { $LanIp = $candidate.ToString() }
+    } catch {}
+}
+if (-not $LanIp -or $LanIp -eq '') { $LanIp = '' }
+$LanUrl = if ($LanIp) { "http://${LanIp}:8080" } else { '' }
 
 Write-Host ""
 Write-Host "  ========================================================" -ForegroundColor Cyan
@@ -104,14 +115,17 @@ Write-Host ""
 Write-Host "  This computer : " -ForegroundColor DarkGray -NoNewline
 Write-Host "http://127.0.0.1:8080" -ForegroundColor White
 Write-Host "  Other devices : " -ForegroundColor DarkGray -NoNewline
-Write-Host ("http://" + $LanIp + ":8080") -ForegroundColor Yellow
+if ($LanUrl) {
+    Write-Host $LanUrl -ForegroundColor Yellow
+} else {
+    Write-Host "(no network detected — connect to WiFi or Ethernet for LAN access)" -ForegroundColor DarkYellow
+}
 Write-Host ""
 Write-Host "  Data Enterers should use the yellow address above." -ForegroundColor DarkGray
 Write-Host "  Leave this window OPEN while entry is in progress." -ForegroundColor DarkGray
 Write-Host ""
 
 # Generate QR code for the LAN URL so Data Enterers can scan with their phone
-$LanUrl = "http://$LanIp:8080"
 $QrScript = Join-Path $env:TEMP 'laz_qr.py'
 @(
     'import sys',
@@ -127,7 +141,11 @@ $QrScript = Join-Path $env:TEMP 'laz_qr.py'
 
 Write-Host "  Scan to connect from any device on this network:" -ForegroundColor Cyan
 Write-Host ""
-& $Vpy $QrScript $LanUrl
+if ($LanUrl) {
+    & $Vpy $QrScript $LanUrl
+} else {
+    Write-Host "  (No QR — connect this machine to a network first)" -ForegroundColor DarkYellow
+}
 Write-Host ""
 Remove-Item -Path $QrScript -ErrorAction SilentlyContinue
 

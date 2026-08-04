@@ -301,7 +301,7 @@ $LanIp = ''
 
 # 1. Get-NetIPAddress: skip loopback, APIPA, and virtual/tunnel adapters
 try {
-    $LanIp = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+    $LanIp = [string](Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
         Where-Object {
             $_.IPAddress -ne '127.0.0.1' -and
             $_.IPAddress -notlike '169.254.*' -and
@@ -315,8 +315,9 @@ try {
                 default     { 2 }
             }
         } |
-        Select-Object -First 1 -ExpandProperty IPAddress
-} catch {}
+        Select-Object -First 1 -ExpandProperty IPAddress)
+    if ($LanIp -and $LanIp -notmatch '^\d{1,3}(\.\d{1,3}){3}$') { $LanIp = '' }
+} catch { $LanIp = '' }
 
 # 2. Python UDP trick: connect() to a private addr - no packet is ever sent,
 #    but the OS picks the correct source interface. Works fully offline.
@@ -350,8 +351,18 @@ if (-not $LanIp) {
     } catch {}
 }
 
-if (-not $LanIp) { $LanIp = '127.0.0.1' }
-$LanUrl = "http://$LanIp:8080"
+if (-not $LanIp -or $LanIp -eq '' -or $LanIp -eq '127.0.0.1') {
+    # No LAN detected — try one more approach: hostname resolution
+    try {
+        $hostEntry = [System.Net.Dns]::GetHostEntry([System.Net.Dns]::GetHostName())
+        $candidate = $hostEntry.AddressList |
+            Where-Object { $_.AddressFamily -eq 'InterNetwork' -and $_.ToString() -ne '127.0.0.1' } |
+            Select-Object -First 1
+        if ($candidate) { $LanIp = $candidate.ToString() }
+    } catch {}
+}
+if (-not $LanIp -or $LanIp -eq '') { $LanIp = '' }
+$LanUrl = if ($LanIp) { "http://${LanIp}:8080" } else { '' }
 
 Write-Host "  ========================================================" -ForegroundColor Cyan
 Write-Host "           LAZEIMS STATION IS RUNNING                     " -ForegroundColor Cyan
@@ -360,24 +371,32 @@ Write-Host ""
 Write-Host "  This computer : " -ForegroundColor DarkGray -NoNewline
 Write-Host "http://127.0.0.1:8080" -ForegroundColor White
 Write-Host "  Other devices : " -ForegroundColor DarkGray -NoNewline
-Write-Host $LanUrl -ForegroundColor Yellow
+if ($LanUrl) {
+    Write-Host $LanUrl -ForegroundColor Yellow
+} else {
+    Write-Host "(no network detected — connect to WiFi or Ethernet for LAN access)" -ForegroundColor DarkYellow
+}
 Write-Host ""
 Write-Host "  Scan to connect from any device on this network:" -ForegroundColor Cyan
 Write-Host ""
 
-# Generate QR code for the LAN URL
-$QrScript = Join-Path $env:TEMP 'laz_qr.py'
-@('import sys',
-  'try:',
-  '    import qrcode',
-  '    qr = qrcode.QRCode(border=1)',
-  '    qr.add_data(sys.argv[1])',
-  '    qr.make(fit=True)',
-  '    qr.print_ascii(invert=True)',
-  'except Exception as e:',
-  '    print("  (QR unavailable: install qrcode package)")') -join "`n" |
-    Set-Content -Path $QrScript -Encoding UTF8
-& $Vpy $QrScript $LanUrl
+if ($LanUrl) {
+    # Generate QR code for the LAN URL
+    $QrScript = Join-Path $env:TEMP 'laz_qr.py'
+    @('import sys',
+      'try:',
+      '    import qrcode',
+      '    qr = qrcode.QRCode(border=1)',
+      '    qr.add_data(sys.argv[1])',
+      '    qr.make(fit=True)',
+      '    qr.print_ascii(invert=True)',
+      'except Exception as e:',
+      '    print("  (QR unavailable: install qrcode package)")') -join "`n" |
+        Set-Content -Path $QrScript -Encoding UTF8
+    & $Vpy $QrScript $LanUrl
+} else {
+    Write-Host "  (No QR — connect this machine to a network first)" -ForegroundColor DarkYellow
+}
 Remove-Item -Path $QrScript -ErrorAction SilentlyContinue
 
 Write-Host ""

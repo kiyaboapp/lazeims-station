@@ -176,6 +176,52 @@ def apply_migrations(conn: sqlite3.Connection, *, backup_before_upgrade: str | N
         except Exception:
             pass  # column already exists
 
+    if version < 2:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS marks_audit (
+                id          INTEGER PRIMARY KEY,
+                student_id  TEXT    NOT NULL,
+                subject_code TEXT   NOT NULL,
+                paper_type  TEXT    NOT NULL,
+                operation   TEXT    NOT NULL,
+                mode        TEXT    NOT NULL,
+                before_total REAL,
+                before_items TEXT,
+                after_total  REAL,
+                after_items  TEXT,
+                actor_assignment_id INTEGER,
+                station_occurred_at TEXT NOT NULL,
+                event_id    TEXT,
+                scope_was_finalized INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_marks_audit_student
+                ON marks_audit (student_id, subject_code, paper_type);
+            CREATE INDEX IF NOT EXISTS idx_marks_audit_actor
+                ON marks_audit (actor_assignment_id, station_occurred_at);
+            CREATE INDEX IF NOT EXISTS idx_marks_audit_event
+                ON marks_audit (event_id);
+        """)
+        set_user_version(conn, 2)
+        version = 2
+
+    if version < 3:
+        # Revert orphan SENDING events that survived a crash
+        conn.execute(
+            "UPDATE outbox_events SET status='PENDING', "
+            "last_error='reverted_from_sending_at_startup_v3' "
+            "WHERE status='SENDING'"
+        )
+        conn.commit()
+        set_user_version(conn, 3)
+        version = 3
+
+    # Always run at startup: revert any SENDING events left by a previous crash
+    conn.execute(
+        "UPDATE outbox_events SET status='PENDING', last_error='reverted_at_startup'"
+        " WHERE status='SENDING'"
+    )
+    conn.commit()
+
     if version > SCHEMA_VERSION:
         raise PackageImportError(
             "UPGRADE_REQUIRED",

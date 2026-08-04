@@ -8,6 +8,7 @@ its sync event (or vice versa).
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -135,6 +136,18 @@ def transcribe_attendance(
     centre = _centre_of(conn, student_id)
     if _is_finalized(conn, centre, subject_code, paper_type):
         raise ValidationError(RejectionCode.SCOPE_ALREADY_FINALIZED, "Scope is finalized.")
+    # Prevent marking absent if marks already exist for this student-subject-paper
+    if not is_present:
+        has_marks = conn.execute(
+            "SELECT 1 FROM total_marks WHERE student_id=? AND subject_code=? AND paper_type=?",
+            (student_id, subject_code, paper_type.value),
+        ).fetchone()
+        if has_marks:
+            raise ValidationError(
+                RejectionCode.SCOPE_ALREADY_FINALIZED,
+                "Cannot mark absent — marks already entered for this paper.",
+                {"student_id": student_id, "subject_code": subject_code, "paper_type": paper_type.value},
+            )
     with transaction(conn):
         conn.execute(
             "INSERT INTO attendance(student_id, subject_code, paper_type, is_present, source, transcribed_by, transcribed_at)"
@@ -200,6 +213,25 @@ def apply_student_paper_marks(
     )
 
     with transaction(conn):
+        # --- Read before-state for audit ---
+        before_total = None
+        before_items = None
+        if mode == FillingMode.TOTAL_MARKS:
+            existing = conn.execute(
+                "SELECT total_marks_obtained FROM total_marks WHERE student_id=? AND subject_code=? AND paper_type=?",
+                (student_id, subject_code, paper_type.value)
+            ).fetchone()
+            before_total = existing["total_marks_obtained"] if existing else None
+        else:  # ITEM_LEVEL
+            existing_items = conn.execute(
+                "SELECT q.question_number, im.marks_obtained FROM item_marks im"
+                " JOIN questions q ON q.id = im.question_id"
+                " WHERE im.student_id=? AND q.subject_code=? AND q.paper_type=?",
+                (student_id, subject_code, paper_type.value)
+            ).fetchall()
+            if existing_items:
+                before_items = json.dumps({r["question_number"]: r["marks_obtained"] for r in existing_items})
+
         if mode == FillingMode.TOTAL_MARKS:
             conn.execute(
                 "DELETE FROM total_marks WHERE student_id=? AND subject_code=? AND paper_type=?",
@@ -238,6 +270,27 @@ def apply_student_paper_marks(
             conn, entity_type="STUDENT_PAPER_MARKS_REPLACED",
             natural_key=_natural_key(conn, student_id, subject_code, paper_type),
             value=value, actor_assignment_id=actor_assignment_id,
+        )
+
+        # --- Write audit row ---
+        import json as _json
+        if mode == FillingMode.TOTAL_MARKS:
+            after_total = float(total_marks_obtained) if is_present and total_marks_obtained is not None else None
+            operation = 'SET' if after_total is not None else 'CLEAR'
+            after_items_json = None
+        else:
+            after_total = None
+            after_items_json = _json.dumps({k: float(v) for k, v in (items or {}).items()}) if is_present and items else None
+            operation = 'ITEM_SET' if after_items_json else 'ITEM_CLEAR'
+
+        conn.execute(
+            "INSERT INTO marks_audit(student_id, subject_code, paper_type, operation, mode,"
+            " before_total, before_items, after_total, after_items,"
+            " actor_assignment_id, station_occurred_at, event_id, scope_was_finalized)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (student_id, subject_code, paper_type.value, operation, mode.value,
+             before_total, before_items, after_total, after_items_json,
+             actor_assignment_id, _now(), event_id, 0)
         )
 
     return {

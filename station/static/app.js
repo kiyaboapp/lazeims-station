@@ -129,7 +129,50 @@ async function boot(){
 
   const me=await api('/api/me');
   if(me.ok){ SESSION=await me.json(); afterLogin(); }
-  else showView('login');
+  else {
+    // Check if multiple stations exist — show chooser if needed
+    try {
+      const avRes = await api('/api/stations/available');
+      if (avRes.ok) {
+        const av = await avRes.json();
+        const stEl = $('station-selector');
+        if (av.stations.length > 1 && stEl) {
+          stEl.hidden = false;
+          const active = av.active;
+          stEl.innerHTML = `
+            <p class="login-hint" style="margin-bottom:8px;font-weight:600">Select station:</p>
+            <div class="station-picker">
+              ${av.stations.map(s => `
+                <button type="button" class="station-option${active && active.station_code===s.station_code?' active':''}" data-code="${esc(s.station_code)}" data-exam="${esc(s.exam_id)}">
+                  <strong>${esc(s.station_code)}</strong>
+                  <span class="muted">${s.students} students${s.exam_name ? ' · '+esc(s.exam_name) : ''}</span>
+                </button>
+              `).join('')}
+            </div>
+          `;
+          stEl.querySelectorAll('.station-option').forEach(btn => {
+            btn.addEventListener('click', async () => {
+              const code = btn.dataset.code, exam = btn.dataset.exam;
+              stEl.innerHTML = '<p class="login-hint">Switching to <strong>'+esc(code)+'</strong>…</p>';
+              await jpost('/api/stations/switch', {station_code: code, exam_id: exam});
+              // Server will restart — poll until it's back
+              setTimeout(() => { location.reload(); }, 1500);
+            });
+          });
+          // If no station is active, hide the login form
+          if (!active) {
+            $('login-form').hidden = true;
+            $('login-hint-active')?.remove();
+          }
+        } else if (av.active && stEl) {
+          // Single station or already active — just show which one
+          stEl.hidden = false;
+          stEl.innerHTML = `<p class="login-hint">Station: <strong>${esc(av.active.station_code)}</strong></p>`;
+        }
+      }
+    } catch(e) { /* network issue — skip selector */ }
+    showView('login');
+  }
 }
 
 // ── Login ─────────────────────────────────────────────────────────────────────
