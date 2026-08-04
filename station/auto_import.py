@@ -47,45 +47,45 @@ def _already_imported(conn: sqlite3.Connection, package_id: str | None) -> bool:
 def auto_import_pending(cfg: StationConfig, conn: sqlite3.Connection | None = None) -> list[dict]:
     """Import signed ZIPs first, then any legacy JSON bundles.
 
-    On a fresh install (station_code/exam_id not yet known), scans every
-    ``stations/<code>/exams/<id>/imports/pending/`` directory under the
-    LAZEIMS home so that a pre-staged Complete Bundle package is discovered
-    and imported automatically on first boot without any manual UI steps.
+    Always sweeps **every** ``stations/<code>/exams/<id>/imports/pending/``
+    directory under the LAZEIMS home, not just the currently-active one. This
+    matters because a computer running multiple stations may receive a fresh
+    package for a station that is not currently selected — e.g. GEITA-1
+    packages arriving while MWANZA-2 is active. If we only imported into the
+    active station's DB, those packages would sit untouched forever and the
+    operator would never see them, even though the setup script correctly
+    staged them into GEITA-1's own ``imports/pending``.
+
+    A pre-staged Complete Bundle package is therefore discovered and imported
+    automatically on first boot (or any boot) without manual UI steps,
+    regardless of which station happens to be active at that moment.
     """
     results: list[dict] = []
 
-    if cfg.station_code and cfg.exam_id:
-        # Known active station/exam — import into the configured DB
-        exam_root = paths.exam_dir(cfg.station_code, cfg.exam_id)
-        own_conn = conn is None
-        if own_conn:
-            conn = connect(cfg.db_path)
-        try:
-            _import_from_dir(conn, exam_root, results)
-            _import_legacy_json(conn, cfg.data_dir, results)
-        finally:
-            if own_conn:
-                conn.close()
-        return results
-
-    # Fresh install — scan every station/exam dir that has pending ZIPs.
-    # Use the per-exam DB for each, not the global setup DB.
-    stations_root = cfg.lazeims_home / "stations"
+    home = cfg.lazeims_home or paths.lazeims_home()
+    stations_root = home / "stations"
     if stations_root.is_dir():
-        for stn in stations_root.iterdir():
-            if not stn.is_dir():
+        for stn in sorted(stations_root.iterdir()):
+            if not stn.is_dir() or stn.name.startswith("."):
                 continue
             exams_dir = stn / "exams"
             if not exams_dir.is_dir():
                 continue
-            for ex in exams_dir.iterdir():
+            for ex in sorted(exams_dir.iterdir()):
                 if not ex.is_dir():
                     continue
                 pending = ex / "imports" / "pending"
                 if not pending.is_dir() or not any(pending.glob("*.zip")):
                     continue
-                # Use the exam-specific DB so the import is in the right place
+                # Import into THIS station/exam's own DB — never the active
+                # station's DB unless they happen to be the same directory.
                 exam_db_path = ex / "station.sqlite3"
+                if cfg.station_code == stn.name and cfg.exam_id == ex.name and conn is not None:
+                    # Caller already has a live connection open to this exact
+                    # DB (used by tests) — reuse it instead of opening a
+                    # second connection to the same SQLite file.
+                    _import_from_dir(conn, ex, results)
+                    continue
                 exam_conn = connect(exam_db_path)
                 try:
                     from .migrations import apply_migrations
@@ -94,15 +94,18 @@ def auto_import_pending(cfg: StationConfig, conn: sqlite3.Connection | None = No
                 finally:
                     exam_conn.close()
 
-    # Also scan legacy JSON bundles from the setup dir
+    # Legacy JSON bundles live under the currently-resolved data_dir only
+    # (this path predates multi-station support and is not per-station).
     own_conn = conn is None
-    if own_conn:
-        conn = connect(cfg.db_path)
+    if cfg.station_code and cfg.exam_id:
+        target_conn = conn if conn is not None else connect(cfg.db_path)
+    else:
+        target_conn = conn if conn is not None else connect(cfg.db_path)
     try:
-        _import_legacy_json(conn, cfg.data_dir, results)
+        _import_legacy_json(target_conn, cfg.data_dir, results)
     finally:
         if own_conn:
-            conn.close()
+            target_conn.close()
 
     return results
 

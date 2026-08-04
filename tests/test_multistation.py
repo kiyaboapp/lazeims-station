@@ -310,3 +310,122 @@ async def test_switch_clears_session_cookie(home):
         await c.post("/api/stations/switch",
                      json={"station_code": "GEITA-1", "exam_id": "EX1"})
         assert c.cookies.get(SESSION_COOKIE) in (None, "")
+
+
+# ---------------------------------------------------------------------------
+# 3. Regression: pending packages for a NON-active station must still import
+# ---------------------------------------------------------------------------
+
+def _stage_pending_zip(home: Path, *, station_code: str, exam_id: str,
+                       filename: str, zip_bytes: bytes) -> Path:
+    """Simulate what setup.ps1 does: drop a package zip into that station's
+    own imports/pending — regardless of which station is currently active.
+    """
+    pending = home / "stations" / station_code / "exams" / exam_id / "imports" / "pending"
+    pending.mkdir(parents=True, exist_ok=True)
+    target = pending / filename
+    target.write_bytes(zip_bytes)
+    return target
+
+
+def _build_signed_zip_bytes(*, station_code: str, exam_id: str, de_initials: str,
+                            de_pin: str) -> bytes:
+    """Build an in-memory package ZIP shaped like package_import expects,
+    signed with the real Ed25519 test key pair so import_signed_zip succeeds.
+    """
+    import io
+    import json as _json
+    import zipfile
+
+    from lazeims_common.signing import sign_package_manifest
+
+    seed = {
+        "schools": [{"centre_number": f"SCH-{station_code}", "name": f"{station_code} School"}],
+        "subjects": [{
+            "subject_code": "011", "name": "History", "papers": ["THEORY1"],
+            "total_marks": {"THEORY1": 100, "THEORY2": 0, "PRACTICAL": 0},
+            "groups": [], "questions": [],
+        }],
+        "students": [{
+            "student_id": f"{station_code}-STU-9", "centre_number": f"SCH-{station_code}",
+            "first_name": "Z", "middle_name": None, "surname": "Nine", "sex": "F",
+        }],
+        "registrations": [{"student_id": f"{station_code}-STU-9", "subject_code": "011"}],
+        "credentials": [
+            {"assignment_id": abs(hash(station_code + "adm")) % 10_000 + 3000,
+             "role": "EXAM_ADMIN", "pin_hash": None,
+             "password_hash": _ph.hash("zip-admin-pw"), "initials": "ADMIN",
+             "admin_username": f"admin-{station_code.lower()}-zip"},
+            {"assignment_id": abs(hash(station_code + de_initials)) % 10_000 + 4000,
+             "role": "DATA_ENTERER", "pin_hash": _ph.hash(de_pin),
+             "initials": de_initials, "password_hash": None, "admin_username": None},
+        ],
+    }
+    manifest = {
+        "contract_version": "station-package/v1",
+        "package_id": f"pkg-{station_code}-zip", "package_version": 1,
+        "rules_version": "1.0", "software_min_version": "1.0.0",
+        "station_code": station_code, "exam_id": exam_id,
+        "configuration_hash": sha256_prefixed(seed),
+        "issued_at": "2026-08-04T00:00:00Z",
+        "scope": {"schools": [f"SCH-{station_code}"], "subjects": ["011"], "papers": ["THEORY1"]},
+        "data_enterers": [],
+    }
+    signature = sign_package_manifest(manifest)
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("manifest.json", _json.dumps(manifest))
+        zf.writestr("seed.json", _json.dumps(seed))
+        zf.writestr("machine-credential.json", _json.dumps({}))
+        zf.writestr("signature", signature)
+    return buf.getvalue()
+
+
+def test_pending_package_for_inactive_station_still_imports_on_boot(home, monkeypatch):
+    """Reproduces the KIYABO-CONSORT bug: MWANZA-2 is already the active
+    station with data; a GEITA-1 package sitting in its own imports/pending
+    must still be picked up on the next boot, even though GEITA-1 is not
+    (and has never been) the active station.
+    """
+    # MWANZA-2 already fully provisioned and made active (simulates "ran once
+    # already" from a prior boot).
+    _make_station(home, station_code="MWANZA-2", exam_id="EX1")
+    set_active_station("MWANZA-2", "EX1", home=home)
+
+    # GEITA-1 has NO database yet — only a pending package, exactly like the
+    # setup script staging a fresh Complete Bundle package before first boot.
+    try:
+        zip_bytes = _build_signed_zip_bytes(
+            station_code="GEITA-1", exam_id="EX1", de_initials="GD", de_pin="9999")
+    except Exception:
+        pytest.skip("lazeims_common signing keypair not available in this environment")
+    _stage_pending_zip(home, station_code="GEITA-1", exam_id="EX1",
+                       filename="GEITA-1-v1.lazeims-package.zip", zip_bytes=zip_bytes)
+
+    # Boot the app exactly as production does: no fixed cfg, home_root is
+    # LAZEIMS_HOME (patched by the `home` fixture).
+    app = create_app()
+
+    import asyncio
+    async def _check():
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://sta") as c:
+            # MWANZA-2 remains active (untouched)...
+            st = (await c.get("/api/status")).json()
+            assert st["station_code"] == "MWANZA-2"
+
+            # ...but GEITA-1's package was imported into GEITA-1's own DB on
+            # boot, even though it was never the active station.
+            avail = (await c.get("/api/stations/available")).json()
+            geita = next(s for s in avail["stations"]
+                        if s["station_code"] == "GEITA-1" and s["exam_id"] == "EX1")
+            assert geita["students"] == 1  # the one seeded student imported
+
+            # And it's reachable by switching to it — no reinstall needed.
+            sw = await c.post("/api/stations/switch",
+                              json={"station_code": "GEITA-1", "exam_id": "EX1"})
+            assert sw.status_code == 200
+            li = await c.post("/api/login/de", json={"initials": "GD", "pin": "9999"})
+            assert li.status_code == 200, li.text
+
+    asyncio.run(_check())
