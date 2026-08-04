@@ -1,0 +1,28 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "Backend API additions - Add analytics endpoints and fix scoping bugs in existing endpoints. This provides the data layer for the new rich dashboard, reports page, and properly scoped user management.",
+  "status": "completed",
+  "steps": [
+    "In station/main.py, add GET /api/analytics/dashboard endpoint that returns: marks_per_day (last 14 days), per_subject_progress (marks entered vs total per subject), completion_timeline (cumulative finalized scopes over time), top_enterers (marks count per DE).",
+    "In station/main.py, add GET /api/analytics/subject-distribution endpoint that returns per-subject marks distribution (min, max, mean, median, quartiles) for each subject+paper on the station.",
+    "In station/main.py, add GET /api/analytics/attendance-rates endpoint that returns per-school attendance rate (present/total) and per-subject attendance rate.",
+    "Fix GET /api/progress endpoint: add optional query param 'user_id' (int). When provided, filter the progress data to only show schools/subjects that the given DE user is assigned to (via user_scopes table). When user_id is absent, return station-wide progress as before.",
+    "Add GET /api/admin/users/available-scopes endpoint: accepts query param 'centre_numbers' (comma-separated). Returns only the subjects that exist in the station's students table for those specific schools. This replaces the current approach of showing ALL subjects regardless of school selection.",
+    "Fix POST /api/admin/users endpoint: validate that submitted subject_codes actually exist for the given centre_numbers. If centre_numbers are provided, only allow subjects that have students registered at those schools on this station."
+  ],
+  "acceptance_criteria": [
+    "GET /api/analytics/dashboard returns JSON with marks_per_day, per_subject_progress, completion_timeline, top_enterers fields",
+    "GET /api/analytics/subject-distribution returns per-subject stats with min/max/mean/median",
+    "GET /api/analytics/attendance-rates returns per-school and per-subject attendance percentages",
+    "GET /api/progress?user_id=X returns progress scoped to that DE's assignments only",
+    "GET /api/admin/users/available-scopes?centre_numbers=S0104,S0105 returns subjects found at those schools",
+    "POST /api/admin/users with invalid subject_code for given schools returns 422 error"
+  ],
+  "verification": [
+    "Run: cd /projects/sandbox/lazeims-station && python -m pytest tests/ -q to ensure existing tests still pass",
+    "Run: python -c \"from station.main import app; print('API loaded OK')\" to verify the app compiles without syntax errors"
+  ],
+  "blocked_reason": null,
+  "findings": "All 6 endpoints implemented and verified. 48 tests pass, 5 pre-existing failures unchanged. The finalized_scopes table has a finalized_at column which is used for the completion_timeline. The analytics endpoints are placed before the catch-all route and require EXAM_ADMIN role. The available-scopes endpoint returns all subjects when no centre_numbers param is provided. The progress endpoint user_id filtering uses de_scopes_for() and is_scope_allowed() consistently with existing patterns. Subject distribution uses Python statistics module for quartile calculations (only when count >= 4)."
+}

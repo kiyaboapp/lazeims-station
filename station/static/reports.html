@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en" class="">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reports - LAZEIMS Station</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    tailwind.config = { darkMode: 'class' };
+    if (localStorage.getItem('theme') === 'dark') document.documentElement.classList.add('dark');
+  </script>
+</head>
+<body class="bg-gray-50 dark:bg-gray-950 min-h-screen">
+  <div id="app">
+    <main class="lg:ml-64 pt-0 min-h-screen">
+      <div class="p-4 md:p-6 max-w-7xl mx-auto space-y-6">
+        <!-- Marks Distribution Section -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+          <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Marks Distribution by Subject</h3>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">Min, Q1, median, Q3, max for each subject/paper</p>
+          <div id="dist-container">
+            <canvas id="distribution-chart" height="300"></canvas>
+          </div>
+          <div id="dist-table" class="mt-4 overflow-x-auto"></div>
+        </div>
+
+        <!-- Attendance Rates Section -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+            <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Attendance Rates by School</h3>
+            <canvas id="attendance-school-chart" height="250"></canvas>
+          </div>
+          <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+            <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Attendance Rates by Subject</h3>
+            <canvas id="attendance-subject-chart" height="250"></canvas>
+          </div>
+        </div>
+
+        <!-- Subject Comparison Radar -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+          <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Subject Comparison (Mean Marks)</h3>
+          <div class="max-w-lg mx-auto">
+            <canvas id="radar-chart" height="300"></canvas>
+          </div>
+        </div>
+
+        <!-- Top Enterers & Progress -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+            <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Data Entry Progress by User</h3>
+            <div id="de-progress"></div>
+          </div>
+          <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+            <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Completion Timeline</h3>
+            <canvas id="timeline-chart" height="200"></canvas>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script type="module">
+    import { api, esc, fmt, pct } from './static/js/api.js';
+    import { initNav, setPageTitle } from './static/shared/nav.js';
+    import { showSpinner } from './static/shared/loading.js';
+
+    async function boot() {
+      const session = await initNav();
+      if (!session) return;
+      setPageTitle('Reports & Analytics');
+
+      showSpinner('dist-container');
+
+      const [distribution, attendance, dashboard, deProgress] = await Promise.all([
+        api('/api/analytics/subject-distribution').then(r => r.json()).catch(() => []),
+        api('/api/analytics/attendance-rates').then(r => r.json()).catch(() => ({ per_school: [], per_subject: [] })),
+        api('/api/analytics/dashboard').then(r => r.json()).catch(() => null),
+        api('/api/admin/progress/detail').then(r => r.json()).catch(() => []),
+      ]);
+
+      renderDistributionChart(distribution);
+      renderDistributionTable(distribution);
+      renderAttendanceSchoolChart(attendance.per_school || []);
+      renderAttendanceSubjectChart(attendance.per_subject || []);
+      renderRadarChart(distribution);
+      renderDEProgress(deProgress);
+      if (dashboard) renderTimelineChart(dashboard.completion_timeline || []);
+    }
+
+    function renderDistributionChart(data) {
+      const ctx = document.getElementById('distribution-chart');
+      const container = document.getElementById('dist-container');
+      container.innerHTML = '';
+      container.appendChild(ctx);
+
+      if (!data.length) {
+        container.innerHTML = '<p class="text-sm text-gray-500 dark:text-gray-400 text-center py-8">No marks data available yet.</p>';
+        return;
+      }
+
+      const labels = data.map(d => `${d.subject_code} (${d.paper_type.replace('THEORY1','T1').replace('THEORY2','T2').replace('PRACTICAL','P')})`);
+      new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [
+            { label: 'Min', data: data.map(d => d.min), backgroundColor: 'rgba(239, 68, 68, 0.7)' },
+            { label: 'Mean', data: data.map(d => d.mean), backgroundColor: 'rgba(99, 102, 241, 0.7)' },
+            { label: 'Median', data: data.map(d => d.median), backgroundColor: 'rgba(16, 185, 129, 0.7)' },
+            { label: 'Max', data: data.map(d => d.max), backgroundColor: 'rgba(245, 158, 11, 0.7)' },
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'top' } },
+          scales: { y: { beginAtZero: true, title: { display: true, text: 'Marks' } } }
+        }
+      });
+    }
+
+    function renderDistributionTable(data) {
+      if (!data.length) return;
+      document.getElementById('dist-table').innerHTML = `
+        <table class="w-full text-xs">
+          <thead>
+            <tr class="border-b border-gray-200 dark:border-gray-700">
+              <th class="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-400">Subject</th>
+              <th class="text-center px-3 py-2 font-medium text-gray-600 dark:text-gray-400">Paper</th>
+              <th class="text-center px-3 py-2 font-medium text-gray-600 dark:text-gray-400">Count</th>
+              <th class="text-center px-3 py-2 font-medium text-gray-600 dark:text-gray-400">Min</th>
+              <th class="text-center px-3 py-2 font-medium text-gray-600 dark:text-gray-400">Q1</th>
+              <th class="text-center px-3 py-2 font-medium text-gray-600 dark:text-gray-400">Median</th>
+              <th class="text-center px-3 py-2 font-medium text-gray-600 dark:text-gray-400">Q3</th>
+              <th class="text-center px-3 py-2 font-medium text-gray-600 dark:text-gray-400">Max</th>
+              <th class="text-center px-3 py-2 font-medium text-gray-600 dark:text-gray-400">Mean</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+            ${data.map(d => `
+              <tr>
+                <td class="px-3 py-2 text-gray-900 dark:text-white">${esc(d.subject_name)}</td>
+                <td class="px-3 py-2 text-center text-gray-600 dark:text-gray-400">${d.paper_type.replace('THEORY1','T1').replace('THEORY2','T2').replace('PRACTICAL','P')}</td>
+                <td class="px-3 py-2 text-center">${d.count}</td>
+                <td class="px-3 py-2 text-center text-red-600">${d.min}</td>
+                <td class="px-3 py-2 text-center">${d.q1 ?? '-'}</td>
+                <td class="px-3 py-2 text-center font-medium text-indigo-600 dark:text-indigo-400">${d.median}</td>
+                <td class="px-3 py-2 text-center">${d.q3 ?? '-'}</td>
+                <td class="px-3 py-2 text-center text-green-600">${d.max}</td>
+                <td class="px-3 py-2 text-center font-medium">${d.mean}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>`;
+    }
+
+    function renderAttendanceSchoolChart(data) {
+      const ctx = document.getElementById('attendance-school-chart');
+      if (!data.length) return;
+      new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: data.map(d => d.centre_number),
+          datasets: [{
+            label: 'Attendance Rate %',
+            data: data.map(d => d.rate),
+            backgroundColor: data.map(d => d.rate >= 90 ? 'rgba(16, 185, 129, 0.7)' : d.rate >= 70 ? 'rgba(245, 158, 11, 0.7)' : 'rgba(239, 68, 68, 0.7)'),
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true, max: 100, title: { display: true, text: '%' } } }
+        }
+      });
+    }
+
+    function renderAttendanceSubjectChart(data) {
+      const ctx = document.getElementById('attendance-subject-chart');
+      if (!data.length) return;
+      new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: data.map(d => d.subject_code),
+          datasets: [{
+            label: 'Attendance Rate %',
+            data: data.map(d => d.rate),
+            backgroundColor: 'rgba(99, 102, 241, 0.7)',
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          indexAxis: 'y',
+          plugins: { legend: { display: false } },
+          scales: { x: { beginAtZero: true, max: 100 } }
+        }
+      });
+    }
+
+    function renderRadarChart(distribution) {
+      const ctx = document.getElementById('radar-chart');
+      if (!distribution.length) return;
+      // Group by subject (combine papers)
+      const subjectMeans = {};
+      distribution.forEach(d => {
+        if (!subjectMeans[d.subject_code]) subjectMeans[d.subject_code] = { name: d.subject_name, means: [] };
+        subjectMeans[d.subject_code].means.push(d.mean);
+      });
+      const subjects = Object.values(subjectMeans);
+      const labels = subjects.map(s => s.name.length > 12 ? s.name.slice(0, 12) + '...' : s.name);
+      const means = subjects.map(s => s.means.reduce((a, b) => a + b, 0) / s.means.length);
+
+      new Chart(ctx, {
+        type: 'radar',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Average Mark',
+            data: means,
+            backgroundColor: 'rgba(99, 102, 241, 0.2)',
+            borderColor: 'rgba(99, 102, 241, 1)',
+            pointBackgroundColor: 'rgba(99, 102, 241, 1)',
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: { r: { beginAtZero: true } }
+        }
+      });
+    }
+
+    function renderDEProgress(data) {
+      const el = document.getElementById('de-progress');
+      const des = data.filter(d => d.role === 'DATA_ENTERER');
+      if (!des.length) { el.innerHTML = '<p class="text-sm text-gray-500 dark:text-gray-400">No data enterers found.</p>'; return; }
+      des.sort((a, b) => b.marks_entered - a.marks_entered);
+      el.innerHTML = `
+        <div class="divide-y divide-gray-200 dark:divide-gray-700">
+          ${des.map(de => `
+            <div class="flex items-center justify-between py-3">
+              <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-700 dark:text-indigo-300 text-xs font-bold">${esc((de.name || '?').slice(0, 2).toUpperCase())}</div>
+                <div>
+                  <p class="text-sm font-medium text-gray-900 dark:text-white">${esc(de.name)}</p>
+                  <p class="text-xs text-gray-500 dark:text-gray-400">Today: ${fmt(de.marks_today)} marks</p>
+                </div>
+              </div>
+              <div class="text-right">
+                <p class="text-sm font-bold text-indigo-600 dark:text-indigo-400">${fmt(de.marks_entered)}</p>
+                <p class="text-xs text-gray-500 dark:text-gray-400">total marks</p>
+              </div>
+            </div>
+          `).join('')}
+        </div>`;
+    }
+
+    function renderTimelineChart(data) {
+      const ctx = document.getElementById('timeline-chart');
+      if (!data.length) return;
+      new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: data.map(d => d.date.slice(5)),
+          datasets: [{
+            label: 'Cumulative Finalized',
+            data: data.map(d => d.cumulative_finalized),
+            borderColor: '#10b981',
+            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+            fill: true,
+            tension: 0.3,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true } }
+        }
+      });
+    }
+
+    boot();
+  </script>
+</body>
+</html>

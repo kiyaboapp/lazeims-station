@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en" class="">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scopes - LAZEIMS Station</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode: 'class' };
+    if (localStorage.getItem('theme') === 'dark') document.documentElement.classList.add('dark');
+  </script>
+</head>
+<body class="bg-gray-50 dark:bg-gray-950 min-h-screen">
+  <div id="app">
+    <main class="lg:ml-64 pt-0 min-h-screen">
+      <div class="p-4 md:p-6 max-w-7xl mx-auto">
+        <!-- Filter chips -->
+        <div class="flex flex-wrap gap-2 mb-6">
+          <button data-filter="all" class="filter-chip px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-indigo-600 text-white">All</button>
+          <button data-filter="open" class="filter-chip px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700">Open</button>
+          <button data-filter="in_use" class="filter-chip px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700">In Use</button>
+          <button data-filter="finalized" class="filter-chip px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700">Finalized</button>
+        </div>
+
+        <!-- Summary -->
+        <div id="scope-summary" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6"></div>
+
+        <!-- Scope cards grid -->
+        <div id="scopes-content" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+      </div>
+    </main>
+  </div>
+
+  <script type="module">
+    import { api, jpost, esc, fmt, pct } from './static/js/api.js';
+    import { initNav, setPageTitle, getSession } from './static/shared/nav.js';
+    import { showCardSkeleton } from './static/shared/loading.js';
+
+    let scopes = [];
+    let activeFilter = 'all';
+    let session = null;
+
+    async function boot() {
+      session = await initNav();
+      if (!session) return;
+      setPageTitle('Scopes');
+
+      showCardSkeleton('scopes-content', 6);
+
+      try {
+        scopes = await api('/api/scopes').then(r => r.json());
+      } catch (e) { scopes = []; }
+
+      renderSummary();
+      renderScopes();
+    }
+
+    function renderSummary() {
+      const total = scopes.length;
+      const open = scopes.filter(s => !s.finalized && s.lock_status !== 'LOCKED').length;
+      const inUse = scopes.filter(s => !s.finalized && s.lock_status === 'LOCKED').length;
+      const finalized = scopes.filter(s => s.finalized).length;
+
+      document.getElementById('scope-summary').innerHTML = [
+        { label: 'Total', value: fmt(total), color: 'indigo' },
+        { label: 'Open', value: fmt(open), color: 'blue' },
+        { label: 'In Use', value: fmt(inUse), color: 'yellow' },
+        { label: 'Finalized', value: fmt(finalized), color: 'green' },
+      ].map(k => `
+        <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+          <p class="text-2xl font-bold text-${k.color}-600 dark:text-${k.color}-400">${k.value}</p>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">${k.label}</p>
+        </div>
+      `).join('');
+    }
+
+    function getFiltered() {
+      if (activeFilter === 'all') return scopes;
+      if (activeFilter === 'open') return scopes.filter(s => !s.finalized && s.lock_status !== 'LOCKED');
+      if (activeFilter === 'in_use') return scopes.filter(s => !s.finalized && s.lock_status === 'LOCKED');
+      if (activeFilter === 'finalized') return scopes.filter(s => s.finalized);
+      return scopes;
+    }
+
+    function renderScopes() {
+      const list = getFiltered();
+      const isAdmin = session?.role === 'EXAM_ADMIN';
+
+      if (!list.length) {
+        document.getElementById('scopes-content').innerHTML = `
+          <div class="col-span-full bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-8 text-center">
+            <p class="text-sm text-gray-500 dark:text-gray-400">No scopes matching this filter.</p>
+          </div>`;
+        return;
+      }
+
+      document.getElementById('scopes-content').innerHTML = list.map(s => {
+        const paper = s.paper_type.replace('THEORY1', 'Theory 1').replace('THEORY2', 'Theory 2').replace('PRACTICAL', 'Practical');
+        let statusClass, statusText, statusIcon;
+        if (s.finalized) {
+          statusClass = 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400';
+          statusText = 'Finalized';
+          statusIcon = '<svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>';
+        } else if (s.lock_status === 'LOCKED') {
+          statusClass = 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400';
+          statusText = 'In Use';
+          statusIcon = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>';
+        } else {
+          statusClass = 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400';
+          statusText = 'Open';
+          statusIcon = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"/></svg>';
+        }
+
+        return `
+          <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 hover:shadow-md transition-shadow">
+            <div class="flex items-start justify-between mb-3">
+              <div>
+                <p class="text-sm font-medium text-gray-900 dark:text-white">${esc(s.school_name || s.centre_number)}</p>
+                <p class="text-xs text-gray-500 dark:text-gray-400 font-mono">${esc(s.centre_number)}</p>
+              </div>
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${statusClass}">
+                ${statusIcon} ${statusText}
+              </span>
+            </div>
+            <div class="space-y-1.5">
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-gray-500 dark:text-gray-400 w-16">Subject</span>
+                <span class="text-sm text-gray-900 dark:text-white">${esc(s.subject_name || s.subject_code)}</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-gray-500 dark:text-gray-400 w-16">Paper</span>
+                <span class="text-sm text-gray-900 dark:text-white">${paper}</span>
+              </div>
+              ${s.lock_owner ? `<div class="flex items-center gap-2"><span class="text-xs text-gray-500 dark:text-gray-400 w-16">Locked by</span><span class="text-sm text-yellow-600 dark:text-yellow-400">${esc(s.lock_owner)}</span></div>` : ''}
+            </div>
+            ${isAdmin && s.lock_status === 'LOCKED' && !s.finalized ? `
+              <div class="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+                <button onclick="forceRelease('${esc(s.centre_number)}','${esc(s.subject_code)}','${esc(s.paper_type)}')" class="text-xs text-red-600 hover:text-red-700 dark:text-red-400 font-medium">Force Release Lock</button>
+              </div>
+            ` : ''}
+          </div>`;
+      }).join('');
+    }
+
+    window.forceRelease = async function(centre, subject, paper) {
+      const reason = prompt('Reason for force-releasing this lock:');
+      if (!reason) return;
+      const r = await jpost('/api/locks/force-release', { centre_number: centre, subject_code: subject, paper_type: paper, reason });
+      if (r.ok) {
+        scopes = await api('/api/scopes').then(r => r.json()).catch(() => []);
+        renderSummary();
+        renderScopes();
+      } else {
+        const err = await r.json().catch(() => ({}));
+        alert('Failed: ' + (err.detail?.message || err.detail || 'Unknown error'));
+      }
+    };
+
+    // Filter chip handlers
+    document.querySelectorAll('.filter-chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.filter-chip').forEach(b => {
+          b.className = 'filter-chip px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700';
+        });
+        btn.className = 'filter-chip px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-indigo-600 text-white';
+        activeFilter = btn.dataset.filter;
+        renderScopes();
+      });
+    });
+
+    boot();
+  </script>
+</body>
+</html>

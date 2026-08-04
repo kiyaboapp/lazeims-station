@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en" class="">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings - LAZEIMS Station</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode: 'class' };
+    if (localStorage.getItem('theme') === 'dark') document.documentElement.classList.add('dark');
+  </script>
+</head>
+<body class="bg-gray-50 dark:bg-gray-950 min-h-screen">
+  <div id="app">
+    <main class="lg:ml-64 pt-0 min-h-screen">
+      <div class="p-4 md:p-6 max-w-7xl mx-auto space-y-6">
+
+        <!-- Station Info -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+          <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Station Information</h3>
+          <div id="station-info" class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm"></div>
+        </div>
+
+        <!-- Sync Configuration -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+          <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Sync Configuration</h3>
+          <form id="sync-form" class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Central Server URL</label>
+              <input id="central-url" type="url" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm" placeholder="central server address">
+            </div>
+            <div class="flex gap-3">
+              <button type="submit" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors">Save Config</button>
+              <button type="button" id="sync-now-btn" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors">Sync Now</button>
+            </div>
+            <p id="sync-msg" class="text-sm min-h-[1.25rem]"></p>
+          </form>
+        </div>
+
+        <!-- Sync Actions -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+          <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Sync Actions</h3>
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <button id="pull-snapshot-btn" class="flex flex-col items-center gap-2 p-4 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+              <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+              <span class="text-xs font-medium text-gray-700 dark:text-gray-300">Pull Snapshot</span>
+            </button>
+            <a href="/api/sync/export-outbox" class="flex flex-col items-center gap-2 p-4 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+              <svg class="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+              <span class="text-xs font-medium text-gray-700 dark:text-gray-300">Export Outbox</span>
+            </a>
+            <button id="import-ack-btn" class="flex flex-col items-center gap-2 p-4 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+              <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              <span class="text-xs font-medium text-gray-700 dark:text-gray-300">Import Ack</span>
+            </button>
+            <button id="retry-rejected-btn" class="flex flex-col items-center gap-2 p-4 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+              <svg class="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+              <span class="text-xs font-medium text-gray-700 dark:text-gray-300">Retry Rejected</span>
+            </button>
+          </div>
+          <p id="action-msg" class="text-sm min-h-[1.25rem] mt-3"></p>
+          <input type="file" id="ack-file-input" accept=".zip" class="hidden">
+        </div>
+
+        <!-- Import Package -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+          <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Import Package</h3>
+          <form id="import-form" class="space-y-3">
+            <input type="file" id="pkg-file" accept=".zip,.json" class="block w-full text-sm text-gray-600 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-indigo-50 file:text-indigo-700 dark:file:bg-indigo-900/30 dark:file:text-indigo-300 hover:file:bg-indigo-100">
+            <button type="submit" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors">Import</button>
+            <p id="import-msg" class="text-sm min-h-[1.25rem]"></p>
+          </form>
+        </div>
+
+        <!-- Rejected Events -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+          <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Rejected Events</h3>
+          <div id="rejected-list" class="text-sm text-gray-500 dark:text-gray-400">Loading...</div>
+        </div>
+
+        <!-- Audit Log -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+          <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Marks Audit Log</h3>
+          <div class="flex flex-wrap gap-3 mb-3">
+            <input id="audit-student" type="text" placeholder="Student ID" class="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-xs w-32">
+            <input id="audit-subject" type="text" placeholder="Subject" class="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-xs w-28">
+            <button id="audit-search-btn" class="px-3 py-1.5 text-xs font-medium bg-gray-600 hover:bg-gray-700 text-white rounded-lg">Search</button>
+          </div>
+          <div id="audit-content" class="overflow-x-auto"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script type="module">
+    import { api, jpost, esc, fmt, relTime } from './static/js/api.js';
+    import { initNav, setPageTitle } from './static/shared/nav.js';
+    import { showSpinner } from './static/shared/loading.js';
+
+    async function boot() {
+      const session = await initNav();
+      if (!session) return;
+      setPageTitle('Settings');
+
+      await Promise.all([loadStationInfo(), loadSyncConfig(), loadRejected()]);
+    }
+
+    async function loadStationInfo() {
+      try {
+        const status = await api('/api/status').then(r => r.json());
+        document.getElementById('station-info').innerHTML = `
+          <div class="space-y-2">
+            <div class="flex justify-between"><span class="text-gray-500 dark:text-gray-400">Station Code</span><span class="font-medium text-gray-900 dark:text-white">${esc(status.station_code || 'N/A')}</span></div>
+            <div class="flex justify-between"><span class="text-gray-500 dark:text-gray-400">Exam ID</span><span class="font-medium text-gray-900 dark:text-white">${esc(status.exam_id || 'N/A')}</span></div>
+          </div>
+          <div class="space-y-2">
+            <div class="flex justify-between"><span class="text-gray-500 dark:text-gray-400">Packages</span><span class="font-medium text-gray-900 dark:text-white">${fmt(status.packages)}</span></div>
+            <div class="flex justify-between"><span class="text-gray-500 dark:text-gray-400">Students</span><span class="font-medium text-gray-900 dark:text-white">${fmt(status.students)}</span></div>
+            <div class="flex justify-between"><span class="text-gray-500 dark:text-gray-400">Version</span><span class="font-medium text-gray-900 dark:text-white">${esc(status.software_version || 'N/A')}</span></div>
+          </div>`;
+      } catch (e) {}
+    }
+
+    async function loadSyncConfig() {
+      try {
+        const cfg = await api('/api/sync/config').then(r => r.json());
+        if (cfg.central_url) document.getElementById('central-url').value = cfg.central_url;
+      } catch (e) {}
+    }
+
+    async function loadRejected() {
+      try {
+        const rejected = await api('/api/sync/rejected').then(r => r.json());
+        const el = document.getElementById('rejected-list');
+        if (!rejected.length) {
+          el.innerHTML = '<p class="text-sm text-green-600 dark:text-green-400">No rejected events.</p>';
+          return;
+        }
+        el.innerHTML = `
+          <div class="divide-y divide-gray-200 dark:divide-gray-700 max-h-64 overflow-y-auto">
+            ${rejected.map(r => `
+              <div class="py-2">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-mono text-gray-900 dark:text-white">${esc(r.student_id || '')} / ${esc(r.subject_code || '')} / ${esc(r.paper_type || '')}</span>
+                  <span class="text-xs px-2 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">${esc(r.rejection_code || r.code || 'REJECTED')}</span>
+                </div>
+                ${r.message ? `<p class="text-xs text-gray-500 mt-0.5">${esc(r.message)}</p>` : ''}
+              </div>
+            `).join('')}
+          </div>`;
+      } catch (e) {
+        document.getElementById('rejected-list').innerHTML = '<p class="text-xs text-gray-500">Could not load rejected events.</p>';
+      }
+    }
+
+    // Sync config form
+    document.getElementById('sync-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const msg = document.getElementById('sync-msg');
+      const url = document.getElementById('central-url').value.trim();
+      msg.textContent = 'Saving...';
+      msg.className = 'text-sm min-h-[1.25rem] text-gray-600 dark:text-gray-400';
+      const r = await jpost('/api/sync/config', { central_url: url || null });
+      if (r.ok) { msg.textContent = 'Saved.'; msg.className = 'text-sm min-h-[1.25rem] text-green-600 dark:text-green-400'; }
+      else { msg.textContent = 'Failed to save.'; msg.className = 'text-sm min-h-[1.25rem] text-red-600 dark:text-red-400'; }
+    });
+
+    // Sync Now
+    document.getElementById('sync-now-btn').addEventListener('click', async () => {
+      const msg = document.getElementById('sync-msg');
+      msg.textContent = 'Syncing...';
+      msg.className = 'text-sm min-h-[1.25rem] text-gray-600 dark:text-gray-400';
+      try {
+        const r = await jpost('/api/sync/run', {});
+        const data = await r.json();
+        if (r.ok) {
+          msg.textContent = `Sync complete. ${data.pushed || 0} pushed, ${data.acked || 0} acked.`;
+          msg.className = 'text-sm min-h-[1.25rem] text-green-600 dark:text-green-400';
+        } else {
+          msg.textContent = data.detail || 'Sync failed.';
+          msg.className = 'text-sm min-h-[1.25rem] text-red-600 dark:text-red-400';
+        }
+      } catch (e) { msg.textContent = 'Sync error: ' + e.message; msg.className = 'text-sm min-h-[1.25rem] text-red-600 dark:text-red-400'; }
+    });
+
+    // Pull Snapshot
+    document.getElementById('pull-snapshot-btn').addEventListener('click', async () => {
+      const msg = document.getElementById('action-msg');
+      msg.textContent = 'Pulling snapshot...';
+      try {
+        const r = await jpost('/api/sync/pull-snapshot', {});
+        if (r.ok) { msg.textContent = 'Snapshot pulled.'; msg.className = 'text-sm min-h-[1.25rem] text-green-600 dark:text-green-400'; }
+        else { const d = await r.json(); msg.textContent = d.detail || 'Failed.'; msg.className = 'text-sm min-h-[1.25rem] text-red-600 dark:text-red-400'; }
+      } catch (e) { msg.textContent = 'Error: ' + e.message; msg.className = 'text-sm min-h-[1.25rem] text-red-600 dark:text-red-400'; }
+    });
+
+    // Import Ack
+    document.getElementById('import-ack-btn').addEventListener('click', () => {
+      document.getElementById('ack-file-input').click();
+    });
+    document.getElementById('ack-file-input').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const msg = document.getElementById('action-msg');
+      msg.textContent = 'Importing ack...';
+      const fd = new FormData();
+      fd.append('file', file);
+      try {
+        const r = await fetch('/api/sync/import-ack', { method: 'POST', body: fd, credentials: 'same-origin' });
+        if (r.ok) { const d = await r.json(); msg.textContent = `Ack imported. ${d.acked || 0} events acknowledged.`; msg.className = 'text-sm min-h-[1.25rem] text-green-600 dark:text-green-400'; }
+        else { const d = await r.json(); msg.textContent = d.detail || 'Import failed.'; msg.className = 'text-sm min-h-[1.25rem] text-red-600 dark:text-red-400'; }
+      } catch (e) { msg.textContent = 'Error: ' + e.message; msg.className = 'text-sm min-h-[1.25rem] text-red-600 dark:text-red-400'; }
+      e.target.value = '';
+    });
+
+    // Retry Rejected
+    document.getElementById('retry-rejected-btn').addEventListener('click', async () => {
+      const msg = document.getElementById('action-msg');
+      msg.textContent = 'Retrying...';
+      try {
+        const r = await jpost('/api/sync/retry-rejected', {});
+        if (r.ok) { const d = await r.json(); msg.textContent = `${d.queued || 0} events queued for retry.`; msg.className = 'text-sm min-h-[1.25rem] text-green-600 dark:text-green-400'; await loadRejected(); }
+        else { msg.textContent = 'Failed.'; msg.className = 'text-sm min-h-[1.25rem] text-red-600 dark:text-red-400'; }
+      } catch (e) { msg.textContent = 'Error: ' + e.message; msg.className = 'text-sm min-h-[1.25rem] text-red-600 dark:text-red-400'; }
+    });
+
+    // Import Package
+    document.getElementById('import-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const file = document.getElementById('pkg-file').files[0];
+      if (!file) return;
+      const msg = document.getElementById('import-msg');
+      msg.textContent = 'Importing...';
+      msg.className = 'text-sm min-h-[1.25rem] text-gray-600 dark:text-gray-400';
+      const fd = new FormData();
+      fd.append('file', file);
+      try {
+        const r = await fetch('/api/import', { method: 'POST', body: fd, credentials: 'same-origin' });
+        if (r.ok) { const d = await r.json(); msg.textContent = `Imported! ${d.students || 0} students.`; msg.className = 'text-sm min-h-[1.25rem] text-green-600 dark:text-green-400'; }
+        else { const d = await r.json(); msg.textContent = d.error?.message || 'Import failed.'; msg.className = 'text-sm min-h-[1.25rem] text-red-600 dark:text-red-400'; }
+      } catch (e) { msg.textContent = 'Error: ' + e.message; msg.className = 'text-sm min-h-[1.25rem] text-red-600 dark:text-red-400'; }
+    });
+
+    // Audit Log
+    document.getElementById('audit-search-btn').addEventListener('click', async () => {
+      const studentId = document.getElementById('audit-student').value.trim();
+      const subject = document.getElementById('audit-subject').value.trim();
+      const params = new URLSearchParams();
+      if (studentId) params.set('student_id', studentId);
+      if (subject) params.set('subject_code', subject);
+      params.set('limit', '50');
+
+      const el = document.getElementById('audit-content');
+      el.innerHTML = '<p class="text-xs text-gray-500">Loading...</p>';
+
+      try {
+        const rows = await api(`/api/audit/marks?${params}`).then(r => r.json());
+        if (!rows.length) { el.innerHTML = '<p class="text-xs text-gray-500">No audit records found.</p>'; return; }
+        el.innerHTML = `
+          <table class="w-full text-xs">
+            <thead><tr class="border-b border-gray-200 dark:border-gray-700">
+              <th class="px-2 py-1.5 text-left font-medium text-gray-500">Time</th>
+              <th class="px-2 py-1.5 text-left font-medium text-gray-500">Student</th>
+              <th class="px-2 py-1.5 text-left font-medium text-gray-500">Subject</th>
+              <th class="px-2 py-1.5 text-left font-medium text-gray-500">Op</th>
+              <th class="px-2 py-1.5 text-left font-medium text-gray-500">Before</th>
+              <th class="px-2 py-1.5 text-left font-medium text-gray-500">After</th>
+              <th class="px-2 py-1.5 text-left font-medium text-gray-500">By</th>
+            </tr></thead>
+            <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+              ${rows.map(r => `<tr>
+                <td class="px-2 py-1.5 text-gray-500">${relTime(r.station_occurred_at)}</td>
+                <td class="px-2 py-1.5 font-mono">${esc(r.student_id)}</td>
+                <td class="px-2 py-1.5">${esc(r.subject_code)} ${esc(r.paper_type)}</td>
+                <td class="px-2 py-1.5">${esc(r.operation)}</td>
+                <td class="px-2 py-1.5">${r.before_total ?? '-'}</td>
+                <td class="px-2 py-1.5 font-medium">${r.after_total ?? '-'}</td>
+                <td class="px-2 py-1.5">${esc(r.actor_initials || '-')}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>`;
+      } catch (e) { el.innerHTML = '<p class="text-xs text-red-500">Error loading audit.</p>'; }
+    });
+
+    boot();
+  </script>
+</body>
+</html>

@@ -1,326 +1,476 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en" class="">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LAZEIMS Station</title>
-  <script>(function(){try{var t=localStorage.getItem('theme')||'system';document.documentElement.setAttribute('data-theme',(t==='dark'||(t==='system'&&matchMedia('(prefers-color-scheme:dark)').matches))?'dark':'light');}catch(e){}})();</script>
-  <link rel="stylesheet" href="/static/app.css"/>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    tailwind.config = { darkMode: 'class' };
+    if (localStorage.getItem('theme') === 'dark') document.documentElement.classList.add('dark');
+  </script>
 </head>
-<body>
-
-<!-- ═══ TOPBAR ════════════════════════════════════════════════════ -->
-<header class="topbar">
-  <div class="topbar-left">
-    <button id="sidebar-toggle" class="icon-btn" aria-label="Menu">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-    </button>
-    <div class="brand">
-      <svg class="brand-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
-      <span>LAZEIMS Station</span>
-    </div>
-    <span id="status-pill" class="pill pill-idle">Loading…</span>
-  </div>
-  <div class="topbar-right">
-    <span id="who-label" class="who-label"></span>
-    <button id="theme-btn" class="icon-btn" title="Toggle theme">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
-    </button>
-    <button id="logout-btn" class="btn-ghost btn-sm" hidden>Sign out</button>
-  </div>
-</header>
-
-<div class="app-shell">
-
-  <!-- ═══ SIDEBAR ══════════════════════════════════════════════════ -->
-  <nav class="sidebar" id="sidebar" hidden>
-    <!-- shared: always visible after login -->
-    <button class="nav-item" data-view="dashboard">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
-      <span>Dashboard</span>
-    </button>
-
-    <!-- admin-only group -->
-    <div class="nav-group admin-only" hidden>
-      <button class="nav-item" data-view="schools">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-        <span>Schools</span>
-      </button>
-      <button class="nav-item" data-view="scopes">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-        <span>All Scopes</span>
-      </button>
-      <button class="nav-item" data-view="users">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-        <span>Users</span>
-      </button>
-      <button class="nav-item" data-view="settings">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        <span>Sync / Settings</span>
-      </button>
-      <button class="nav-item" data-view="audit">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-        <span>Marks Audit</span>
-      </button>
-    </div>
-
-    <div class="nav-divider"></div>
-
-    <!-- shared: visible to all roles -->
-    <button class="nav-item nav-entry" data-view="entry-portal">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-      <span>Enter Marks</span>
-    </button>
-
-    <!-- Sidebar profile card -->
-    <div class="sidebar-profile" id="sidebar-profile" hidden>
-      <div class="sp-avatar" id="sp-avatar">?</div>
-      <div class="sp-info">
-        <div class="sp-name" id="sp-name">—</div>
-        <div class="sp-role" id="sp-role">—</div>
-      </div>
-    </div>
-  </nav>
-
-  <div class="sidebar-overlay" id="sidebar-overlay"></div>
-
-  <!-- ═══ MAIN CONTENT ═════════════════════════════════════════════ -->
-  <main class="main-area" id="main-area">
-
-    <!-- LOGIN ──────────────────────────────────────────────────── -->
-    <section id="view-login" class="view login-view active">
-      <div class="login-card">
-        <div class="login-logo">
-          <svg viewBox="0 0 56 56" fill="none"><rect x="4" y="8" width="48" height="32" rx="4" stroke="currentColor" stroke-width="2.5"/><path d="M20 48h16M28 40v8" stroke="currentColor" stroke-width="2.5"/><path d="M16 22h6M16 30h10M28 22l5 8 5-8" stroke="currentColor" stroke-width="2"/></svg>
-        </div>
-        <h1>LAZEIMS Station</h1>
-        <div id="station-selector" hidden></div>
-        <p class="login-hint">Data Enterer: initials + PIN &nbsp;·&nbsp; Admin: username + password</p>
-        <form id="login-form" autocomplete="off">
-          <div class="field"><label>Initials or Username</label><input id="login-id" required autocomplete="username" placeholder="e.g. AB or MWANZA-2"/></div>
-          <div class="field"><label>PIN or Password</label><input id="login-secret" type="password" required autocomplete="current-password" placeholder="••••"/></div>
-          <button type="submit" class="btn-primary btn-full">Sign in</button>
-        </form>
-        <p id="login-msg" class="form-msg" role="status" aria-live="polite"></p>
-      </div>
-    </section>
-
-    <!-- DASHBOARD — DATA ENTERER ───────────────────────────────── -->
-    <section id="view-dashboard-de" class="view" hidden>
-      <div class="view-header"><h2>My Work</h2></div>
-      <div id="de-progress" class="info-card"></div>
-      <h3 class="sect-title" style="margin-top:20px">My Scopes</h3>
-      <div id="de-scopes-tbl"></div>
-    </section>
-
-    <!-- DASHBOARD — ADMIN ──────────────────────────────────────── -->
-    <section id="view-dashboard-admin" class="view" hidden>
-      <div class="view-header"><h2>Dashboard</h2></div>
-      <div id="admin-kpis" class="kpi-grid"></div>
-      <div class="dash-grid">
-        <div><h3 class="sect-title">Sync Status</h3><div id="admin-sync" class="info-card"></div></div>
-        <div><h3 class="sect-title">Today's Activity</h3><div id="admin-today" class="info-card"></div></div>
-      </div>
-      <h3 class="sect-title" style="margin-top:28px">Schools at a Glance</h3>
-      <div id="admin-schools-tbl"></div>
-    </section>
-
-    <!-- SCHOOLS (admin only) ───────────────────────────────────── -->
-    <section id="view-schools" class="view" hidden>
-      <div class="view-header">
-        <div><h2>Schools</h2><p class="view-sub" id="schools-sub"></p></div>
-        <input id="school-search" class="search-box" type="search" placeholder="Search…"/>
-      </div>
-      <div id="schools-list"></div>
-    </section>
-
-    <!-- SCOPES (admin only) ────────────────────────────────────── -->
-    <section id="view-scopes" class="view" hidden>
-      <div class="view-header">
-        <div><h2>All Scopes</h2><p class="view-sub" id="scopes-sub"></p></div>
-        <div class="chip-row" id="scopes-chips">
-          <button class="chip active" data-f="all">All</button>
-          <button class="chip" data-f="open">Open</button>
-          <button class="chip" data-f="locked">In use</button>
-          <button class="chip" data-f="finalized">Finalized</button>
-        </div>
-      </div>
-      <div id="scopes-list"></div>
-    </section>
-
-    <!-- USERS (admin only) ─────────────────────────────────────── -->
-    <section id="view-users" class="view" hidden>
-      <div class="view-header">
-        <div><h2>Users &amp; Assignments</h2><p class="view-sub">Data Enterers, progress and scope assignments</p></div>
-        <button id="open-create-user" class="btn-primary btn-sm icn-btn">+ New account</button>
-      </div>
-      <div id="create-user-panel" class="inline-panel" hidden>
-        <h3>Create Data Enterer</h3>
-        <form id="create-user-form">
-          <div class="form-row">
-            <div class="field"><label>First Name</label><input id="new-first-name" placeholder="JOHN"/></div>
-            <div class="field"><label>Middle Name <span class="label-hint">(optional)</span></label><input id="new-middle-name" placeholder="PAUL"/></div>
+<body class="bg-gray-50 dark:bg-gray-950 min-h-screen">
+  <div id="app">
+    <!-- Login Section (shown when not authenticated) -->
+    <div id="login-section" class="min-h-screen flex items-center justify-center p-4">
+      <div class="w-full max-w-md">
+        <div class="bg-white dark:bg-gray-900 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 p-8">
+          <div class="text-center mb-6">
+            <div class="w-14 h-14 rounded-xl bg-indigo-600 flex items-center justify-center text-white font-bold text-xl mx-auto mb-4">L</div>
+            <h1 class="text-xl font-bold text-gray-900 dark:text-white">LAZEIMS Station</h1>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Exam marks data entry</p>
           </div>
-          <div class="form-row">
-            <div class="field"><label>Surname</label><input id="new-surname" placeholder="MWANZA"/></div>
-            <div class="field"><label>Phone <span class="label-hint">(optional)</span></label><input id="new-phone" type="tel" placeholder="+255 7xx xxx xxx"/></div>
-          </div>
-          <div class="form-row">
-            <div class="field"><label>Initials</label><input id="new-initials" placeholder="AB" maxlength="6"/></div>
-            <div class="field"><label>PIN (min 4)</label><input id="new-pin" type="password" placeholder="••••" minlength="4"/></div>
-          </div>
-          <div class="field">
-            <label>Assign Scopes</label>
-            <div class="scope-assign-row">
-              <select id="new-scope-school" class="sel-field"><option value="">All schools</option></select>
-              <select id="new-scope-subject" class="sel-field"><option value="">All subjects</option></select>
-              <select id="new-scope-paper" class="sel-field"><option value="">All papers</option><option value="THEORY1">Theory 1</option><option value="THEORY2">Theory 2</option><option value="PRACTICAL">Practical</option></select>
-              <button type="button" id="add-scope-btn" class="btn-secondary btn-sm">Add</button>
+
+          <!-- Station selector -->
+          <div id="station-selector" class="mb-4 hidden"></div>
+
+          <!-- Login form -->
+          <form id="login-form" class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Initials / Username</label>
+              <input id="login-id" type="text" required class="w-full px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent" placeholder="Enter initials or username">
             </div>
-            <div id="assigned-scopes-list" class="assigned-scopes"></div>
-          </div>
-          <div class="form-actions">
-            <button type="submit" class="btn-primary btn-sm">Create account</button>
-            <button type="button" id="cancel-create-user" class="btn-ghost btn-sm">Cancel</button>
-          </div>
-        </form>
-        <p id="create-user-msg" class="form-msg" role="status"></p>
-      </div>
-      <div id="users-list"></div>
-    </section>
-
-    <!-- SYNC / SETTINGS (admin only) ───────────────────────────── -->
-    <section id="view-settings" class="view" hidden>
-      <div class="view-header"><h2>Sync &amp; Settings</h2></div>
-      <div class="settings-cols">
-        <div class="settings-card">
-          <h3>Sync to Central</h3>
-          <div id="sync-banner" class="sync-banner"></div>
-          <div class="field"><label>Central URL</label>
-            <div class="input-row"><input id="central-url-input" placeholder="lazeims.online:10048"/><button id="save-url-btn" class="btn-secondary btn-sm">Save</button></div>
-          </div>
-          <div class="btn-row" style="margin-top:12px">
-            <button id="sync-now-btn" class="btn-primary btn-sm">Sync now</button>
-            <button id="retry-rejected-btn" class="btn-secondary btn-sm" hidden>Retry rejected</button>
-            <span id="sync-result" class="muted small"></span>
-          </div>
-          <p id="sync-msg" class="form-msg" role="status"></p>
-          <div id="rejected-list" class="rejected-list" hidden></div>
-        </div>
-        <div class="settings-card">
-          <h3>Import Exam Package</h3>
-          <form id="import-form"><input id="import-file" type="file" accept=".zip"/><button type="submit" class="btn-secondary btn-sm" style="margin-top:8px">Import .zip</button></form>
-          <p id="import-msg" class="form-msg" role="status"></p>
-        </div>
-        <div class="settings-card">
-          <h3>Central Snapshot</h3>
-          <p class="muted small">Pull what Central holds for this station's scopes.</p>
-          <button id="pull-snapshot-btn" class="btn-secondary btn-sm" style="margin-top:8px">Pull latest snapshot</button>
-          <div id="snapshot-result" style="margin-top:12px"></div>
-        </div>
-        <div class="settings-card">
-          <h3>Portable Transport</h3>
-          <p class="muted small">Export pending events to USB, import acknowledgement ZIP.</p>
-          <div class="btn-row" style="margin-top:8px">
-            <button id="export-outbox-btn" class="btn-secondary btn-sm">Export outbox .zip</button>
-          </div>
-          <form id="import-ack-form" style="margin-top:12px">
-            <input id="import-ack-file" type="file" accept=".zip"/>
-            <button type="submit" class="btn-secondary btn-sm" style="margin-top:4px">Import ack .zip</button>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">PIN / Password</label>
+              <input id="login-secret" type="password" required class="w-full px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent" placeholder="Enter PIN or password">
+            </div>
+            <p id="login-msg" class="text-sm min-h-[1.25rem]"></p>
+            <button type="submit" class="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg transition-colors">Sign In</button>
           </form>
-          <p id="ack-msg" class="form-msg" role="status"></p>
-        </div>
-        <div class="settings-card">
-          <h3>Station Info</h3>
-          <div id="station-info-list" class="info-rows"></div>
-        </div>
-      </div>
-    </section>
 
-    <!-- MARKS AUDIT (admin only) ───────────────────────────────── -->
-    <section id="view-audit" class="view" hidden>
-      <div class="view-header"><h2>Marks Audit Log</h2></div>
-      <div class="audit-filters">
-        <input id="audit-student" placeholder="Student ID" class="search-box sm"/>
-        <input id="audit-subject" placeholder="Subject" class="search-box sm"/>
-        <select id="audit-paper" class="sel-field sm"><option value="">All papers</option><option value="THEORY1">T1</option><option value="THEORY2">T2</option><option value="PRACTICAL">P</option></select>
-        <input id="audit-from" type="date" class="search-box sm"/>
-        <input id="audit-to" type="date" class="search-box sm"/>
-        <button id="audit-search-btn" class="btn-primary btn-sm">Search</button>
-      </div>
-      <div class="roster-wrap">
-        <table class="roster-tbl">
-          <thead><tr><th>Time</th><th>Student</th><th>Subject</th><th>Paper</th><th>Before</th><th>After</th><th>By</th><th>Op</th></tr></thead>
-          <tbody id="audit-tbody"></tbody>
-        </table>
-      </div>
-    </section>
+          <div class="mt-4 text-center">
+            <span id="status-pill-login" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">Checking...</span>
+          </div>
 
-    <!-- ENTRY PORTAL ───────────────────────────────────────────── -->
-    <section id="view-entry-portal" class="view" hidden>
-      <div class="view-header">
-        <div><h2>Enter Marks</h2><p class="view-sub">Select a scope to begin</p></div>
-        <div class="chip-row" id="portal-chips">
-          <button class="chip active" data-f="all">All</button>
-          <button class="chip" data-f="open">Open</button>
-          <button class="chip" data-f="finalized">Finalized</button>
-        </div>
-      </div>
-      <div id="portal-scope-list"></div>
-    </section>
-
-    <!-- DATA ENTRY ─────────────────────────────────────────────── -->
-    <section id="view-entry" class="view" hidden>
-      <div class="entry-bar">
-        <button id="entry-back" class="btn-ghost btn-sm icn-btn back-btn">← Back</button>
-        <div class="entry-meta"><h2 id="entry-title"></h2><span id="entry-sub" class="muted small"></span></div>
-        <div id="entry-statusbar" class="entry-statusbar"></div>
-        <button id="finalize-btn" class="btn-warning btn-sm">Finalize scope</button>
-      </div>
-      <p id="entry-msg" class="form-msg" role="status" aria-live="polite" style="margin:0 0 8px"></p>
-      <div class="tab-bar">
-        <button class="tab active" data-tab="attendance">Attendance (ISAL)</button>
-        <button class="tab" data-tab="marks">Marks</button>
-      </div>
-      <div id="tab-attendance">
-        <div class="tbl-toolbar">
-          <button id="mark-all-present" class="btn-secondary btn-sm">Mark all present</button>
-          <span id="att-summary" class="muted small"></span>
-          <span id="att-absent-hint" class="muted small"></span>
-        </div>
-        <div class="roster-wrap">
-          <table class="roster-tbl"><thead><tr><th class="col-n">#</th><th>Student ID</th><th>Name</th><th class="col-att">Attendance</th></tr></thead><tbody id="att-tbody"></tbody></table>
-        </div>
-        <div class="marks-savebar">
-          <div id="att-validation" class="marks-validation" hidden></div>
-          <div class="marks-savebar-row">
-            <span class="muted small">Toggles auto-save. Confirm all before moving to Marks.</span>
-            <button id="save-attendance" class="btn-save-continue">✓ Save &amp; continue to Marks</button>
+          <div class="mt-3 flex justify-center">
+            <button id="theme-btn-login" class="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors" title="Toggle dark mode">
+              <svg class="w-5 h-5 dark:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+              <svg class="w-5 h-5 hidden dark:block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+            </button>
           </div>
         </div>
       </div>
-      <div id="tab-marks" hidden>
-        <div class="tbl-toolbar">
-          <span id="marks-summary" class="muted small"></span>
-          <span id="marks-absent-note" class="muted small"></span>
-          <span id="autosave-badge" class="save-badge"></span>
-        </div>
-        <div class="roster-wrap">
-          <table class="roster-tbl"><thead><tr><th class="col-n">#</th><th>Student ID</th><th>Name</th><th class="col-att">Present</th><th class="col-marks">Total Marks</th><th class="col-st"></th></tr></thead><tbody id="marks-tbody"></tbody></table>
-        </div>
-        <div class="marks-savebar">
-          <div id="marks-validation" class="marks-validation" hidden></div>
-          <div class="marks-savebar-row">
-            <button id="check-completeness" class="btn-primary btn-sm">Check completeness</button>
-            <span class="muted small">Saves pending, then checks all present students have marks.</span>
+    </div>
+
+    <!-- Dashboard Section (shown after login) -->
+    <div id="dashboard-section" class="hidden">
+      <!-- Nav will be injected here by nav.js -->
+      <main class="lg:ml-64 pt-0 min-h-screen">
+        <div class="p-4 md:p-6 max-w-7xl mx-auto">
+          <!-- Admin Dashboard -->
+          <div id="dash-admin" class="hidden space-y-6">
+            <!-- KPI Cards -->
+            <div id="admin-kpis" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4"></div>
+
+            <!-- Charts Row -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+                <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Marks Per Day (Last 14 Days)</h3>
+                <canvas id="marks-per-day-chart" height="200"></canvas>
+              </div>
+              <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+                <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Overall Progress</h3>
+                <canvas id="progress-doughnut-chart" height="200"></canvas>
+              </div>
+            </div>
+
+            <!-- School Completion + Top Enterers -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+                <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">School Completion</h3>
+                <canvas id="school-completion-chart" height="200"></canvas>
+              </div>
+              <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+                <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Top Enterers</h3>
+                <div id="top-enterers"></div>
+              </div>
+            </div>
+
+            <!-- Sync Status -->
+            <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+              <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Sync Status</h3>
+              <div id="admin-sync-status"></div>
+            </div>
+          </div>
+
+          <!-- DE Dashboard -->
+          <div id="dash-de" class="hidden space-y-6">
+            <!-- Progress KPIs -->
+            <div id="de-kpis" class="grid grid-cols-2 md:grid-cols-4 gap-4"></div>
+
+            <!-- Progress Chart -->
+            <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+              <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">My Progress</h3>
+              <canvas id="de-progress-chart" height="160"></canvas>
+            </div>
+
+            <!-- My Scopes -->
+            <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+              <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">My Scopes</h3>
+              <div id="de-scopes-list"></div>
+            </div>
           </div>
         </div>
-      </div>
-    </section>
+      </main>
+    </div>
+  </div>
 
-  </main>
-</div>
+  <script type="module">
+    import { api, jpost, esc, fmt, pct } from './static/js/api.js';
+    import { initNav, setPageTitle, getSession } from './static/shared/nav.js';
+    import { showSpinner } from './static/shared/loading.js';
 
-<script type="module" src="/static/js/main.js"></script>
+    let SESSION = null;
+    let chartsInitialized = false;
+
+    async function boot() {
+      // Check station availability
+      let stationData = null;
+      try {
+        const r = await api('/api/stations/available');
+        if (r.ok) stationData = await r.json();
+      } catch (e) {}
+
+      const active = stationData?.active;
+      const stations = stationData?.stations || [];
+
+      // Update login status pill
+      const pill = document.getElementById('status-pill-login');
+      if (active) {
+        pill.textContent = active.station_code;
+        pill.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400';
+      } else if (stations.length === 0) {
+        pill.textContent = 'No package imported';
+        pill.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400';
+        renderNoPackage();
+        return;
+      } else {
+        pill.textContent = 'Select station';
+        pill.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400';
+        renderStationPicker(stations);
+        return;
+      }
+
+      // Check if already authenticated
+      try {
+        const me = await api('/api/me');
+        if (me.ok) {
+          SESSION = await me.json();
+          await showDashboard();
+          return;
+        }
+      } catch (e) {}
+
+      // Show login
+      document.getElementById('login-section').classList.remove('hidden');
+    }
+
+    function renderNoPackage() {
+      const sel = document.getElementById('station-selector');
+      sel.classList.remove('hidden');
+      sel.innerHTML = `
+        <div class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 text-center">
+          <p class="text-sm font-medium text-yellow-800 dark:text-yellow-300">No exam package imported yet.</p>
+          <p class="text-xs text-yellow-600 dark:text-yellow-400 mt-1">Import a package to begin.</p>
+        </div>`;
+      document.getElementById('login-form').classList.add('hidden');
+    }
+
+    function renderStationPicker(stations) {
+      const sel = document.getElementById('station-selector');
+      sel.classList.remove('hidden');
+      sel.innerHTML = `
+        <div class="space-y-2 mb-4">
+          <p class="text-sm font-medium text-gray-700 dark:text-gray-300">Select a station:</p>
+          ${stations.map(s => `
+            <button data-code="${esc(s.station_code)}" data-exam="${esc(s.exam_id)}" class="station-pick w-full flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-left">
+              <div class="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center text-indigo-600 dark:text-indigo-400 text-xs font-bold">S</div>
+              <div>
+                <p class="text-sm font-medium text-gray-900 dark:text-white">${esc(s.station_code)}</p>
+                <p class="text-xs text-gray-500">${fmt(s.students)} students</p>
+              </div>
+            </button>
+          `).join('')}
+        </div>`;
+      document.getElementById('login-form').classList.add('hidden');
+
+      sel.querySelectorAll('.station-pick').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const r = await jpost('/api/stations/switch', { station_code: btn.dataset.code, exam_id: btn.dataset.exam });
+          if (r.ok) location.reload();
+        });
+      });
+    }
+
+    async function showDashboard() {
+      document.getElementById('login-section').classList.add('hidden');
+      document.getElementById('dashboard-section').classList.remove('hidden');
+
+      // Init nav
+      const navSession = await initNav();
+      if (!navSession) return;
+      SESSION = navSession;
+      setPageTitle('Dashboard');
+
+      const isAdmin = SESSION.role === 'EXAM_ADMIN';
+      if (isAdmin) {
+        document.getElementById('dash-admin').classList.remove('hidden');
+        await loadAdminDashboard();
+      } else {
+        document.getElementById('dash-de').classList.remove('hidden');
+        await loadDEDashboard();
+      }
+    }
+
+    async function loadAdminDashboard() {
+      try {
+        const [progress, analytics] = await Promise.all([
+          api('/api/progress').then(r => r.json()),
+          api('/api/analytics/dashboard').then(r => r.json()).catch(() => null),
+        ]);
+
+        // KPI Cards
+        const kpis = document.getElementById('admin-kpis');
+        const fin = progress.finalized_scopes || 0;
+        const total = progress.total_scopes || 0;
+        const pctDone = pct(fin, total);
+        kpis.innerHTML = [
+          { label: 'Scopes Done', value: `${fin}/${total}`, color: fin === total && total > 0 ? 'green' : 'indigo' },
+          { label: 'Total Marks', value: fmt(progress.total_marks), color: 'blue' },
+          { label: 'Today', value: fmt(progress.marks_today), color: 'purple' },
+          { label: 'Students', value: fmt(progress.students), color: 'teal' },
+          { label: 'Pending Sync', value: fmt(progress.pending_events), color: progress.pending_events > 0 ? 'yellow' : 'green' },
+          { label: 'Complete', value: `${pctDone}%`, color: pctDone === 100 ? 'green' : 'indigo' },
+        ].map(k => `
+          <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+            <p class="text-2xl font-bold text-${k.color}-600 dark:text-${k.color}-400">${k.value}</p>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">${k.label}</p>
+          </div>
+        `).join('');
+
+        // Charts
+        if (analytics) {
+          renderMarksPerDayChart(analytics.marks_per_day || []);
+          renderProgressDoughnut(fin, total);
+          renderSchoolCompletionChart(analytics.per_subject_progress || [], progress.per_school || []);
+          renderTopEnterers(analytics.top_enterers || []);
+        } else {
+          renderProgressDoughnut(fin, total);
+        }
+
+        // Sync status
+        const syncCfg = await api('/api/sync/config').then(r => r.json()).catch(() => ({}));
+        const syncEl = document.getElementById('admin-sync-status');
+        if (syncCfg.configured) {
+          syncEl.innerHTML = `<div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-green-500"></span><span class="text-sm text-gray-700 dark:text-gray-300">Connected to <strong>${esc(syncCfg.central_url)}</strong></span></div>
+            ${progress.pending_events > 0 ? `<p class="text-sm text-yellow-600 dark:text-yellow-400 mt-1">${fmt(progress.pending_events)} events pending sync</p>` : '<p class="text-sm text-green-600 dark:text-green-400 mt-1">All events synced</p>'}`;
+        } else {
+          syncEl.innerHTML = '<p class="text-sm text-yellow-600 dark:text-yellow-400">Sync not configured. Go to Settings to set up.</p>';
+        }
+      } catch (e) {
+        console.error('Dashboard load error:', e);
+      }
+    }
+
+    async function loadDEDashboard() {
+      try {
+        const userId = SESSION.assignment_id;
+        const [progress, scopes] = await Promise.all([
+          api(`/api/progress?user_id=${userId}`).then(r => r.json()),
+          api('/api/scopes').then(r => r.json()),
+        ]);
+
+        const fin = scopes.filter(s => s.finalized).length;
+        const total = scopes.length;
+        const myPct = pct(fin, total);
+
+        // KPI Cards
+        document.getElementById('de-kpis').innerHTML = [
+          { label: 'Marks Today', value: fmt(progress.marks_today), color: 'indigo' },
+          { label: 'Total Marks', value: fmt(progress.total_marks), color: 'blue' },
+          { label: 'Scopes Done', value: `${fin}/${total}`, color: 'green' },
+          { label: 'Complete', value: `${myPct}%`, color: myPct === 100 ? 'green' : 'purple' },
+        ].map(k => `
+          <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+            <p class="text-2xl font-bold text-${k.color}-600 dark:text-${k.color}-400">${k.value}</p>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">${k.label}</p>
+          </div>
+        `).join('');
+
+        // Progress doughnut
+        renderDEProgressChart(fin, total);
+
+        // Scope list
+        const scopesEl = document.getElementById('de-scopes-list');
+        if (!scopes.length) {
+          scopesEl.innerHTML = '<p class="text-sm text-gray-500 dark:text-gray-400">No scopes assigned.</p>';
+        } else {
+          scopesEl.innerHTML = `<div class="divide-y divide-gray-200 dark:divide-gray-700">
+            ${scopes.map(s => {
+              const paper = s.paper_type.replace('THEORY1', 'T1').replace('THEORY2', 'T2').replace('PRACTICAL', 'P');
+              const done = s.finalized;
+              return `<div class="flex items-center justify-between py-3">
+                <div>
+                  <p class="text-sm font-medium text-gray-900 dark:text-white">${esc(s.centre_number)} - ${esc(s.school_name || '')}</p>
+                  <p class="text-xs text-gray-500 dark:text-gray-400">${esc(s.subject_name || s.subject_code)} - ${esc(paper)}</p>
+                </div>
+                <div>
+                  ${done ? '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">Done</span>' : `<a href="/entry" class="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 text-white hover:bg-indigo-700">Enter</a>`}
+                </div>
+              </div>`;
+            }).join('')}
+          </div>`;
+        }
+      } catch (e) {
+        console.error('DE dashboard error:', e);
+      }
+    }
+
+    function renderMarksPerDayChart(data) {
+      const ctx = document.getElementById('marks-per-day-chart');
+      if (!ctx) return;
+      new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: data.map(d => d.date.slice(5)),
+          datasets: [{
+            label: 'Marks',
+            data: data.map(d => d.count),
+            borderColor: '#6366f1',
+            backgroundColor: 'rgba(99, 102, 241, 0.1)',
+            fill: true,
+            tension: 0.3,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true } }
+        }
+      });
+    }
+
+    function renderProgressDoughnut(fin, total) {
+      const ctx = document.getElementById('progress-doughnut-chart');
+      if (!ctx) return;
+      new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: ['Finalized', 'Remaining'],
+          datasets: [{
+            data: [fin, total - fin],
+            backgroundColor: ['#10b981', '#e5e7eb'],
+            borderWidth: 0,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          cutout: '70%',
+          plugins: {
+            legend: { position: 'bottom' }
+          }
+        }
+      });
+    }
+
+    function renderDEProgressChart(fin, total) {
+      const ctx = document.getElementById('de-progress-chart');
+      if (!ctx) return;
+      new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: ['Completed', 'Remaining'],
+          datasets: [{
+            data: [fin, total - fin],
+            backgroundColor: ['#6366f1', '#e5e7eb'],
+            borderWidth: 0,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          cutout: '70%',
+          plugins: { legend: { position: 'bottom' } }
+        }
+      });
+    }
+
+    function renderSchoolCompletionChart(subjectProgress, perSchool) {
+      const ctx = document.getElementById('school-completion-chart');
+      if (!ctx) return;
+      const schools = perSchool.slice(0, 10);
+      new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: schools.map(s => s.centre_number),
+          datasets: [{
+            label: 'Finalized',
+            data: schools.map(s => s.finalized_scopes),
+            backgroundColor: '#10b981',
+          }, {
+            label: 'Total',
+            data: schools.map(s => s.total_scopes),
+            backgroundColor: '#e5e7eb',
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'top' } },
+          scales: { y: { beginAtZero: true } }
+        }
+      });
+    }
+
+    function renderTopEnterers(enterers) {
+      const el = document.getElementById('top-enterers');
+      if (!el) return;
+      if (!enterers.length) { el.innerHTML = '<p class="text-sm text-gray-500">No data yet.</p>'; return; }
+      el.innerHTML = `<div class="divide-y divide-gray-200 dark:divide-gray-700">
+        ${enterers.slice(0, 5).map((e, i) => `
+          <div class="flex items-center justify-between py-2">
+            <div class="flex items-center gap-2">
+              <span class="w-6 h-6 rounded-full bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center text-xs font-bold text-indigo-700 dark:text-indigo-300">${i + 1}</span>
+              <span class="text-sm text-gray-900 dark:text-white">${esc(e.initials || e.name || 'Unknown')}</span>
+            </div>
+            <span class="text-sm font-medium text-gray-600 dark:text-gray-400">${fmt(e.total_marks)} marks</span>
+          </div>
+        `).join('')}
+      </div>`;
+    }
+
+    // Login form handler
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const id = document.getElementById('login-id').value.trim();
+      const secret = document.getElementById('login-secret').value;
+      const msg = document.getElementById('login-msg');
+      msg.textContent = 'Signing in...';
+      msg.className = 'text-sm min-h-[1.25rem] text-gray-600 dark:text-gray-400';
+
+      const [dr, ar] = await Promise.allSettled([
+        jpost('/api/login/de', { pin: secret, initials: id }),
+        jpost('/api/login/admin', { username: id, password: secret }),
+      ]);
+      const dok = dr.status === 'fulfilled' && dr.value.ok;
+      const aok = ar.status === 'fulfilled' && ar.value.ok;
+      if (dok) { SESSION = await dr.value.json(); msg.textContent = ''; await showDashboard(); }
+      else if (aok) { SESSION = await ar.value.json(); msg.textContent = ''; await showDashboard(); }
+      else { msg.textContent = 'Incorrect credentials.'; msg.className = 'text-sm min-h-[1.25rem] text-red-600 dark:text-red-400'; }
+    });
+
+    // Theme toggle on login page
+    document.getElementById('theme-btn-login')?.addEventListener('click', () => {
+      document.documentElement.classList.toggle('dark');
+      const isDark = document.documentElement.classList.contains('dark');
+      try { localStorage.setItem('theme', isDark ? 'dark' : 'light'); } catch (e) {}
+    });
+
+    boot();
+  </script>
 </body>
 </html>
