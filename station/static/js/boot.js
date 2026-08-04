@@ -67,6 +67,14 @@ async function refreshStationContext() {
 
 // ── Pre-auth UI: choose station or log in ────────────────────────────────────
 
+const ICON_SERVER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>';
+const ICON_CHEVRON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>';
+const ICON_STATIONS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3v4M8 3v4M2 11h20"/></svg>';
+
+function setLoginCardWide(wide) {
+  document.querySelector('.login-card')?.classList.toggle('wide', wide);
+}
+
 function renderPreAuthUI() {
   const selector = $('station-selector');
   const form = $('login-form');
@@ -77,10 +85,11 @@ function renderPreAuthUI() {
   // 0 stations: waiting for import
   if (AVAILABLE_STATIONS.length === 0) {
     selector.hidden = false;
+    setLoginCardWide(true);
     selector.innerHTML = `
       <div class="station-empty">
         <p><strong>No exam package on this computer yet.</strong></p>
-        <p class="muted small">Drop a signed <code>.zip</code> package into
+        <p class="muted">Drop a signed <code>.zip</code> package into
         <code>stations/&lt;code&gt;/exams/&lt;id&gt;/imports/pending/</code>
         and click Refresh, or ask your coordinator for the package.</p>
         <button type="button" id="refresh-imports-btn" class="btn-secondary btn-sm">Refresh</button>
@@ -98,10 +107,11 @@ function renderPreAuthUI() {
   // Chooser: several stations, none active OR active isn't uniquely determined
   if (!ACTIVE_STATION) {
     selector.hidden = false;
+    setLoginCardWide(true);
     if (form) form.hidden = true;
     if (hint) hint.hidden = true;
     selector.innerHTML = renderPicker(
-      '<p class="login-hint" style="margin-bottom:12px;font-weight:600">Select which station to work on:</p>',
+      `<div class="station-picker-header">${ICON_STATIONS}<span>Select which station to work on</span></div>`,
       /* showActive= */ false
     );
     wirePickerButtons();
@@ -110,6 +120,7 @@ function renderPreAuthUI() {
 
   // Exactly one station is active — show its name and the login form.
   selector.hidden = false;
+  setLoginCardWide(false);
   if (form) form.hidden = false;
   if (hint) hint.hidden = false;
   const rest = AVAILABLE_STATIONS.filter(s =>
@@ -118,13 +129,15 @@ function renderPreAuthUI() {
     ? `<button type="button" id="show-picker-btn" class="linkish btn-ghost btn-sm">Switch station</button>`
     : '';
   selector.innerHTML = `
-    <p class="login-hint" style="margin-bottom:8px">
-      Station: <strong>${esc(ACTIVE_STATION.station_code)}</strong>
+    <div class="station-active-banner">
+      <span class="station-active-icon">${ICON_SERVER}</span>
+      <span class="station-active-label">Station: <strong>${esc(ACTIVE_STATION.station_code)}</strong></span>
       ${switchLink}
-    </p>`;
+    </div>`;
   $('show-picker-btn')?.addEventListener('click', () => {
+    setLoginCardWide(true);
     selector.innerHTML = renderPicker(
-      '<p class="login-hint" style="margin-bottom:12px;font-weight:600">Switch to a different station on this computer:</p>',
+      `<div class="station-picker-header">${ICON_STATIONS}<span>Switch to a different station on this computer</span></div>`,
       /* showActive= */ true
     );
     if (form) form.hidden = true;
@@ -141,9 +154,13 @@ function renderPicker(header, showActive) {
     return `
       <button type="button" class="station-option${isActive ? ' active' : ''}"
               data-code="${esc(s.station_code)}" data-exam="${esc(s.exam_id)}">
-        <strong>${esc(s.station_code)}</strong>
-        <span class="muted">${fmt(s.students)} students${s.exam_name ? ' · ' + esc(s.exam_name) : ''}</span>
+        <span class="station-option-icon">${ICON_SERVER}</span>
+        <span class="station-option-body">
+          <strong>${esc(s.station_code)}</strong>
+          <span class="muted">${fmt(s.students)} students${s.exam_name ? ' · ' + esc(s.exam_name) : ''}</span>
+        </span>
         ${badge}
+        <span class="station-option-chevron">${ICON_CHEVRON}</span>
       </button>`;
   }).join('');
   return `${header}<div class="station-picker">${list}</div>`;
@@ -154,7 +171,7 @@ function wirePickerButtons() {
     btn.addEventListener('click', async () => {
       const code = btn.dataset.code, exam = btn.dataset.exam;
       const sel = $('station-selector');
-      sel.innerHTML = `<p class="login-hint">Switching to <strong>${esc(code)}</strong>…</p>`;
+      sel.innerHTML = `<div class="station-picker-header">${ICON_STATIONS}<span>Switching to ${esc(code)}…</span></div>`;
       const r = await jpost('/api/stations/switch',
                             { station_code: code, exam_id: exam });
       if (!r.ok) {
