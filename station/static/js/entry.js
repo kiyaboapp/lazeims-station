@@ -13,6 +13,13 @@ export async function enterScope(i) {
   setState.current({ ...scope });
   $('entry-title').textContent = `${scope.centre_number} · ${scope.school_name || ''} · ${scope.subject_name || scope.subject_code} · ${scope.paper_type}`;
   $('entry-sub').textContent = 'Loading roster…';
+  // Reset button states for the new scope
+  const saveBtn = $('save-attendance');
+  if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save & Continue to Marks →'; }
+  const attBox = $('att-validation');
+  if (attBox) attBox.hidden = true;
+  const marksBox = $('marks-validation');
+  if (marksBox) marksBox.hidden = true;
   switchEntryTab('attendance');
   showView('entry');
   await loadRoster();
@@ -239,8 +246,8 @@ export function initEntry() {
       const box = $('att-validation'); box.hidden = false;
       if (!failed.length) {
         box.className = 'marks-validation ok'; box.innerHTML = `<div class="mv-title">✓ Attendance saved for all ${ROSTER.length} student(s).</div>`;
-        btn.innerHTML = '✓ All saved — opening Marks…'; btn.disabled = true;
-        setTimeout(() => switchEntryTab('marks'), 800);
+        btn.disabled = false; btn.textContent = 'Continue to Marks →';
+        btn.onclick = () => { switchEntryTab('marks'); btn.onclick = null; };
       } else {
         box.className = 'marks-validation blocked'; box.innerHTML = `<div class="mv-title">${failed.length} failed</div>`;
         btn.disabled = false; btn.textContent = 'Save & continue to Marks';
