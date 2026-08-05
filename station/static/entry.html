@@ -128,7 +128,7 @@
     // the function body via the module's mutable binding workaround isn't possible,
     // so instead we patch the entry.js module to check window first.
     // Simplest: just make router.js's showView delegate to window.showView if set.
-    window.showView = localShowView;
+    window._showViewOverride = localShowView;
 
     // Now import entry modules (they will use the patched showView)
     const { loadPortal, initPortal } = await import('./static/js/portal.js');
