@@ -234,26 +234,28 @@
 
     function renderDEProgress(data) {
       const el = document.getElementById('de-progress');
-      const des = data.filter(d => d.role === 'DATA_ENTERER');
-      if (!des.length) { el.innerHTML = '<p class="text-sm text-gray-500 dark:text-gray-400">No data enterers found.</p>'; return; }
-      des.sort((a, b) => b.marks_entered - a.marks_entered);
+      const users = data.filter(d => d.marks_entered > 0 || d.marks_today > 0);
+      if (!users.length) { el.innerHTML = '<p class="text-sm text-gray-500 dark:text-gray-400">No marks entered yet.</p>'; return; }
+      users.sort((a, b) => b.marks_entered - a.marks_entered);
       el.innerHTML = `
         <div class="divide-y divide-gray-200 dark:divide-gray-700">
-          ${des.map(de => `
+          ${users.map(de => {
+            const roleColor = de.role === 'EXAM_ADMIN' ? 'purple' : 'indigo';
+            return `
             <div class="flex items-center justify-between py-3">
               <div class="flex items-center gap-3">
-                <div class="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-700 dark:text-indigo-300 text-xs font-bold">${esc((de.name || '?').slice(0, 2).toUpperCase())}</div>
+                <div class="w-8 h-8 rounded-full bg-${roleColor}-100 dark:bg-${roleColor}-900/30 flex items-center justify-center text-${roleColor}-700 dark:text-${roleColor}-300 text-xs font-bold">${esc((de.name || '?').slice(0, 2).toUpperCase())}</div>
                 <div>
-                  <p class="text-sm font-medium text-gray-900 dark:text-white">${esc(de.name)}</p>
+                  <p class="text-sm font-medium text-gray-900 dark:text-white">${esc(de.name)}${de.role === 'EXAM_ADMIN' ? ' <span class="text-xs text-purple-600 dark:text-purple-400">(Admin)</span>' : ''}</p>
                   <p class="text-xs text-gray-500 dark:text-gray-400">Today: ${fmt(de.marks_today)} marks</p>
                 </div>
               </div>
               <div class="text-right">
-                <p class="text-sm font-bold text-indigo-600 dark:text-indigo-400">${fmt(de.marks_entered)}</p>
+                <p class="text-sm font-bold text-${roleColor}-600 dark:text-${roleColor}-400">${fmt(de.marks_entered)}</p>
                 <p class="text-xs text-gray-500 dark:text-gray-400">total marks</p>
               </div>
-            </div>
-          `).join('')}
+            </div>`;
+          }).join('')}
         </div>`;
     }
 
