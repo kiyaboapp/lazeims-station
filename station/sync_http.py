@@ -133,7 +133,7 @@ def run_http_sync(conn: sqlite3.Connection) -> dict:
 
     transport = http_transport(central_url, cred["credential_id"], cred["secret"])
     try:
-        result = run_sync(conn, transport)
+        result = run_sync(conn, transport, credential_package_id=cred.get("package_id"))
         log.warning("[run_http_sync] run_sync result=%r", result)
         return {"configured": True, **result}
     except RuntimeError as exc:

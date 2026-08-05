@@ -71,7 +71,7 @@ def _set_status(conn, event_ids, status, *, last_error=None, ack=False):
                          (status, last_error, eid))
 
 
-def run_sync(conn: sqlite3.Connection, transport: Transport, *, limit: int = BATCH_MAX) -> dict:
+def run_sync(conn: sqlite3.Connection, transport: Transport, *, limit: int = BATCH_MAX, credential_package_id: str | None = None) -> dict:
     """One bounded sync run. Returns a summary dict."""
     events = select_pending(conn, limit)
     if not events:
@@ -83,11 +83,14 @@ def run_sync(conn: sqlite3.Connection, transport: Transport, *, limit: int = BAT
             conn.execute("UPDATE outbox_events SET status='SENDING' WHERE event_id=?", (eid,))
 
     pkg = _current_package(conn)
+    # Use the credential's package_id if provided — it must match what Central
+    # expects for the credential being used to authenticate.
+    sync_package_id = credential_package_id or pkg["package_id"]
     body = {
         "contract_version": "station-sync/v1",
         "station_code": _meta(conn, "station_code"),
         "exam_id": _meta(conn, "exam_id"),
-        "package_id": pkg["package_id"], "package_version": pkg["package_version"],
+        "package_id": sync_package_id, "package_version": pkg["package_version"],
         "rules_version": pkg["rules_version"], "events": events,
     }
 
