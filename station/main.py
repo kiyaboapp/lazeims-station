@@ -1239,6 +1239,20 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
             if row["first_name"] or row["surname"]:
                 parts = [row["first_name"] or "", row["middle_name"] or "", row["surname"] or ""]
                 full_name = " ".join(p for p in parts if p).upper()
+            # Stats
+            aid = row["assignment_id"]
+            marks_entered = conn.execute(
+                "SELECT COUNT(*) c FROM marks_audit WHERE actor_assignment_id = ?", (aid,)
+            ).fetchone()["c"]
+            marks_today = conn.execute(
+                "SELECT COUNT(*) c FROM marks_audit WHERE actor_assignment_id = ? AND station_occurred_at >= date('now')",
+                (aid,)
+            ).fetchone()["c"]
+            last_row = conn.execute(
+                "SELECT station_occurred_at FROM marks_audit WHERE actor_assignment_id = ? ORDER BY station_occurred_at DESC LIMIT 1",
+                (aid,)
+            ).fetchone()
+            last_active = last_row["station_occurred_at"] if last_row else None
             out.append({
                 "id": row["id"],
                 "assignment_id": row["assignment_id"],
@@ -1252,6 +1266,9 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
                 "phone": row["phone"],
                 "full_name": full_name,
                 "scopes": [{"centre_number": s["centre_number"], "subject_code": s["subject_code"]} for s in scopes],
+                "marks_entered": marks_entered,
+                "marks_today": marks_today,
+                "last_active": last_active,
             })
         return out
 
