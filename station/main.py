@@ -764,9 +764,28 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
             "subject_code": subject_code,
             "subject_name": subject_name,
             "paper_type": paper_type.value,
+        # Get finalization info
+        scope_key = f"{centre_number}|{subject_code}|{paper_type.value}"
+        fin_row = conn.execute("SELECT finalized_at, actor_assignment_id FROM finalized_scopes WHERE scope_key=?", (scope_key,)).fetchone()
+        finalized_at = fin_row["finalized_at"] if fin_row else None
+        enterer_id = fin_row["actor_assignment_id"] if fin_row else None
+        enterer_initials = None
+        if enterer_id:
+            u_row = conn.execute("SELECT initials FROM station_users WHERE assignment_id=?", (enterer_id,)).fetchone()
+            enterer_initials = u_row["initials"] if u_row else str(enterer_id)
+        station_code_row = conn.execute("SELECT value FROM station_meta WHERE key='station_code'").fetchone()
+
+        return {
+            "exam_name": exam_name,
+            "school_name": school_name,
+            "centre_number": centre_number,
+            "subject_code": subject_code,
+            "subject_name": subject_name,
+            "paper_type": paper_type.value,
             "total_possible": total_possible,
-            "enterer_initials": None,
-            "finalized_at": None,
+            "enterer_initials": enterer_initials,
+            "finalized_at": finalized_at,
+            "station_code": station_code_row["value"] if station_code_row else None,
             "questions": questions if questions else None,
             "students": out,
         }

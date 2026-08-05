@@ -92,16 +92,24 @@ async function printMarksReport() {
       @media print { body { padding:10px; } }
     </style></head><body>`;
 
-    html += `<h1>${esc(res.exam_name || '')}</h1>`;
-    html += `<div class="subtitle">MARKS REPORT</div>`;
+    html += `<h1>${esc(res.exam_name || 'MARKS REPORT')}</h1>`;
+    html += `<div class="subtitle">ISAL TRANSCRIPTION — MARKS REPORT</div>`;
     html += `<div class="meta">`;
-    html += `<span><strong>School:</strong> ${esc(res.centre_number)} — ${esc(res.school_name)}</span>`;
-    html += `<span><strong>Subject:</strong> ${esc(res.subject_code)} ${esc(res.subject_name)}</span>`;
-    html += `<span><strong>Paper:</strong> ${esc(res.paper_type)}</span>`;
-    html += `<span><strong>Total Marks:</strong> ${res.total_possible}</span>`;
+    html += `<span><strong>Centre:</strong> ${esc(res.centre_number)}</span>`;
+    html += `<span><strong>School:</strong> ${esc(res.school_name)}</span>`;
+    html += `<span><strong>Subject:</strong> ${esc(res.subject_name)} (${esc(res.subject_code)})</span>`;
+    html += `<span><strong>Paper:</strong> ${esc(res.paper_type.replace('THEORY1','Theory 1').replace('THEORY2','Theory 2').replace('PRACTICAL','Practical'))}</span>`;
+    html += `<span><strong>Max Marks:</strong> ${res.total_possible}</span>`;
+    html += `</div>`;
+    html += `<div class="meta">`;
+    if (res.station_code) html += `<span><strong>Station:</strong> ${esc(res.station_code)}</span>`;
     if (res.enterer_initials) html += `<span><strong>Entered by:</strong> ${esc(res.enterer_initials)}</span>`;
+    if (res.finalized_at) html += `<span><strong>Finalized:</strong> ${new Date(res.finalized_at).toLocaleString()}</span>`;
     const present = students.filter(s => s.attendance !== false).length;
-    html += `<span><strong>Present:</strong> ${present}/${students.length}</span>`;
+    const absent = students.length - present;
+    html += `<span><strong>Present:</strong> ${present}</span>`;
+    html += `<span><strong>Absent:</strong> ${absent}</span>`;
+    html += `<span><strong>Total Students:</strong> ${students.length}</span>`;
     html += `</div>`;
 
     html += `<table><thead><tr>`;
@@ -119,7 +127,7 @@ async function printMarksReport() {
     });
 
     html += `</tbody></table>`;
-    html += `<div class="footer"><span>Generated: ${new Date().toLocaleString()}</span><span>${esc(res.exam_name)} · ${esc(res.centre_number)} · ${esc(res.subject_code)} · ${esc(res.paper_type)}</span></div>`;
+    html += `<div class="footer"><span>Printed: ${new Date().toLocaleString()}</span><span>Station: ${esc(res.station_code || 'N/A')} · ${esc(res.exam_name)} · ${esc(res.centre_number)} · ${esc(res.subject_name)} (${esc(res.paper_type)})</span></div>`;
     html += `</body></html>`;
 
     const win = window.open('', '_blank', 'width=800,height=600');
