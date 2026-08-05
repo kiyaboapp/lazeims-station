@@ -86,15 +86,17 @@
     }
 
     function renderDistributionChart(data) {
-      const ctx = document.getElementById('distribution-chart');
       const container = document.getElementById('dist-container');
       container.innerHTML = '';
-      container.appendChild(ctx);
 
       if (!data.length) {
         container.innerHTML = '<p class="text-sm text-gray-500 dark:text-gray-400 text-center py-8">No marks data available yet.</p>';
         return;
       }
+
+      const ctx = document.createElement('canvas');
+      ctx.height = 300;
+      container.appendChild(ctx);
 
       const labels = data.map(d => `${d.subject_code} (${d.paper_type.replace('THEORY1','T1').replace('THEORY2','T2').replace('PRACTICAL','P')})`);
       new Chart(ctx, {
