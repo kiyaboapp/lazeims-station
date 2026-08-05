@@ -146,6 +146,7 @@
                 </div>
               </div>
               <div class="flex items-center gap-2">
+                ${u.role === 'DATA_ENTERER' && isActive ? `<button onclick="editUser(${u.id})" class="px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-colors">Edit</button>` : ''}
                 ${u.role === 'DATA_ENTERER' && isActive ? `<button onclick="deactivateUser(${u.id})" class="px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors">Deactivate</button>` : ''}
               </div>
             </div>
@@ -274,6 +275,11 @@
       document.getElementById('create-modal').classList.add('hidden');
       document.getElementById('create-form').reset();
       document.getElementById('form-msg').textContent = '';
+      document.getElementById('f-initials').disabled = false;
+      document.getElementById('f-pin').required = true;
+      document.getElementById('f-pin').placeholder = 'Min 4 chars';
+      document.querySelector('#create-modal h2').textContent = 'Create Data Enterer';
+      document.querySelector('#create-form [type="submit"]').textContent = 'Create User';
       selectedSchools = [];
       selectedSubjects = [];
       renderSchoolChips();
@@ -308,6 +314,69 @@
         msg.className = 'text-sm min-h-[1.25rem] text-red-600 dark:text-red-400';
       }
     });
+
+    window.editUser = async function(userId) {
+      const user = users.find(u => u.id === userId);
+      if (!user) return;
+      const scopeCentres = [...new Set((user.scopes || []).filter(s => s.centre_number).map(s => s.centre_number))];
+      const scopeSubjects = [...new Set((user.scopes || []).filter(s => s.subject_code).map(s => s.subject_code))];
+
+      // Reuse the create modal for editing
+      document.getElementById('create-modal').classList.remove('hidden');
+      document.querySelector('#create-modal h2').textContent = `Edit: ${user.initials || user.full_name || 'User'}`;
+      document.querySelector('#create-form [type="submit"]').textContent = 'Save Changes';
+      document.getElementById('f-initials').value = user.initials || '';
+      document.getElementById('f-initials').disabled = true;
+      document.getElementById('f-pin').value = '';
+      document.getElementById('f-pin').required = false;
+      document.getElementById('f-pin').placeholder = 'Leave blank to keep current';
+      document.getElementById('f-first').value = user.first_name || '';
+      document.getElementById('f-middle').value = user.middle_name || '';
+      document.getElementById('f-surname').value = user.surname || '';
+      document.getElementById('f-phone').value = user.phone || '';
+      selectedSchools = scopeCentres;
+      selectedSubjects = scopeSubjects;
+      renderSchoolChips();
+      await refreshSubjects();
+
+      // Override form submit for edit mode
+      const form = document.getElementById('create-form');
+      const handler = async (e) => {
+        e.preventDefault();
+        const msg = document.getElementById('form-msg');
+        msg.textContent = 'Saving...';
+        msg.className = 'text-sm min-h-[1.25rem] text-gray-600 dark:text-gray-400';
+        const pin = document.getElementById('f-pin').value;
+        const body = {
+          pin: pin.length >= 4 ? pin : null,
+          first_name: document.getElementById('f-first').value.trim() || null,
+          middle_name: document.getElementById('f-middle').value.trim() || null,
+          surname: document.getElementById('f-surname').value.trim() || null,
+          phone: document.getElementById('f-phone').value.trim() || null,
+          centre_numbers: selectedSchools,
+          subject_codes: selectedSubjects,
+        };
+        const r = await fetch(`/api/admin/users/${userId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify(body),
+        });
+        if (r.ok) {
+          closeModal();
+          users = await api('/api/admin/users').then(r => r.json()).catch(() => []);
+          renderUsers();
+        } else {
+          const err = await r.json().catch(() => ({}));
+          msg.textContent = err.detail || 'Failed to save.';
+          msg.className = 'text-sm min-h-[1.25rem] text-red-600 dark:text-red-400';
+        }
+        form.removeEventListener('submit', handler);
+      };
+      // Remove default create handler temporarily
+      form.onsubmit = null;
+      form.addEventListener('submit', handler, { once: true });
+    };
 
     boot();
   </script>

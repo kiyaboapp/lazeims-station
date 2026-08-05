@@ -133,6 +133,16 @@ class CreateUserIn(BaseModel):
     subject_codes: list[str] | None = None
 
 
+class EditUserIn(BaseModel):
+    pin: str | None = None
+    first_name: str | None = None
+    middle_name: str | None = None
+    surname: str | None = None
+    phone: str | None = None
+    centre_numbers: list[str] | None = None
+    subject_codes: list[str] | None = None
+
+
 class StationSwitchIn(BaseModel):
     station_code: str
     exam_id: str
@@ -1335,6 +1345,58 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
         conn.execute("UPDATE station_users SET active = 0 WHERE id = ?", (user_id,))
         conn.commit()
         return {"deactivated": True}
+
+    @app.patch("/api/admin/users/{user_id}", tags=["admin"])
+    def edit_user(user_id: int, payload: EditUserIn, conn=Depends(db), a=Depends(actor)):
+        """Edit a Data Enterer: update PIN, name, phone, or scope assignments."""
+        if a["role"] != "EXAM_ADMIN":
+            raise HTTPException(403, "Only the station admin may edit users")
+        row = conn.execute("SELECT id, role, assignment_id, initials FROM station_users WHERE id = ?", (user_id,)).fetchone()
+        if row is None:
+            raise HTTPException(404, "User not found")
+        if row["role"] == "EXAM_ADMIN":
+            raise HTTPException(403, "Cannot edit admin accounts via this endpoint")
+
+        # Update PIN if provided
+        if payload.pin and len(payload.pin) >= 4:
+            from .auth import _ph as _argon2_ph
+            pin_hash = _argon2_ph.hash(payload.pin.strip())
+            conn.execute("UPDATE station_users SET pin_hash = ? WHERE id = ?", (pin_hash, user_id))
+
+        # Update name/phone fields
+        updates = []
+        params = []
+        if payload.first_name is not None:
+            updates.append("first_name = ?")
+            params.append(payload.first_name.strip().upper() or None)
+        if payload.middle_name is not None:
+            updates.append("middle_name = ?")
+            params.append(payload.middle_name.strip().upper() or None)
+        if payload.surname is not None:
+            updates.append("surname = ?")
+            params.append(payload.surname.strip().upper() or None)
+        if payload.phone is not None:
+            updates.append("phone = ?")
+            params.append(payload.phone.strip() or None)
+        if updates:
+            params.append(user_id)
+            conn.execute(f"UPDATE station_users SET {', '.join(updates)} WHERE id = ?", params)
+
+        # Update scopes if provided
+        aid = row["assignment_id"]
+        if payload.centre_numbers is not None or payload.subject_codes is not None:
+            conn.execute("DELETE FROM user_scopes WHERE assignment_id = ?", (aid,))
+            for cn in (payload.centre_numbers or []):
+                conn.execute(
+                    "INSERT OR IGNORE INTO user_scopes(assignment_id, centre_number, subject_code) VALUES(?,?,NULL)",
+                    (aid, cn))
+            for sc in (payload.subject_codes or []):
+                conn.execute(
+                    "INSERT OR IGNORE INTO user_scopes(assignment_id, centre_number, subject_code) VALUES(?,NULL,?)",
+                    (aid, sc))
+
+        conn.commit()
+        return {"updated": True, "id": user_id}
 
     # ---------------- schools + detailed progress ----------------
 
