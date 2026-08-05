@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS machine_credentials (
     stored_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS schools (centre_number TEXT PRIMARY KEY, name TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS schools (centre_number TEXT PRIMARY KEY, name TEXT NOT NULL, council_name TEXT, region_name TEXT);
 
 CREATE TABLE IF NOT EXISTS subjects (
     subject_code TEXT PRIMARY KEY, name TEXT NOT NULL,
@@ -222,6 +222,17 @@ def apply_migrations(conn: sqlite3.Connection, *, backup_before_upgrade: str | N
     )
     conn.commit()
 
+    if version < 4:
+        # Add council_name and region_name to schools table
+        for col in ("council_name TEXT", "region_name TEXT"):
+            try:
+                conn.execute(f"ALTER TABLE schools ADD COLUMN {col}")
+                conn.commit()
+            except Exception:
+                pass  # column already exists
+        set_user_version(conn, 4)
+        version = 4
+
     if version > SCHEMA_VERSION:
         raise PackageImportError(
             "UPGRADE_REQUIRED",
@@ -306,8 +317,8 @@ def import_package(conn: sqlite3.Connection, bundle: dict) -> dict:
 
         # schools
         for s in seed.get("schools", []):
-            conn.execute("INSERT OR REPLACE INTO schools(centre_number, name) VALUES(?,?)",
-                         (s["centre_number"], s["name"]))
+            conn.execute("INSERT OR REPLACE INTO schools(centre_number, name, council_name, region_name) VALUES(?,?,?,?)",
+                         (s["centre_number"], s["name"], s.get("council_name"), s.get("region_name")))
         # subjects + scoring
         for subj in seed.get("subjects", []):
             tm = subj.get("total_marks", {})

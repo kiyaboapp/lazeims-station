@@ -5,7 +5,7 @@ const NAV_ITEMS = [
   { href: '/', icon: 'dashboard', label: 'Dashboard', roles: ['EXAM_ADMIN', 'DATA_ENTERER'] },
   { href: '/entry', icon: 'edit', label: 'Marks Entry', roles: ['EXAM_ADMIN', 'DATA_ENTERER'] },
   { href: '/schools', icon: 'school', label: 'Schools', roles: ['EXAM_ADMIN'] },
-  { href: '/scopes', icon: 'list', label: 'Scopes', roles: ['EXAM_ADMIN', 'DATA_ENTERER'] },
+  { href: '/scopes', icon: 'list', label: 'Subject Papers', roles: ['EXAM_ADMIN', 'DATA_ENTERER'] },
   { href: '/users', icon: 'users', label: 'Users', roles: ['EXAM_ADMIN'] },
   { href: '/reports', icon: 'chart', label: 'Reports', roles: ['EXAM_ADMIN'] },
   { href: '/settings', icon: 'settings', label: 'Settings', roles: ['EXAM_ADMIN'] },
@@ -45,12 +45,12 @@ export async function initNav() {
 
   // Build sidebar HTML
   const sidebarHTML = `
-    <aside id="sidebar" class="fixed inset-y-0 left-0 z-40 w-64 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 transform transition-transform duration-200 lg:translate-x-0 -translate-x-full">
+    <aside id="sidebar" class="fixed inset-y-0 left-0 z-40 w-64 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 transform transition-all duration-200 lg:translate-x-0 -translate-x-full">
       <div class="flex flex-col h-full">
         <!-- Logo -->
         <div class="flex items-center gap-3 px-5 py-4 border-b border-gray-200 dark:border-gray-700">
           <div class="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold text-sm">L</div>
-          <div>
+          <div class="sidebar-label">
             <h1 class="text-sm font-bold text-gray-900 dark:text-white">LAZEIMS Station</h1>
             <p class="text-xs text-gray-500 dark:text-gray-400">${esc(station)}</p>
           </div>
@@ -60,18 +60,26 @@ export async function initNav() {
         <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
           ${visibleItems.map(item => {
             const active = currentPath === item.href || (item.href !== '/' && currentPath.startsWith(item.href));
-            return `<a href="${item.href}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${active ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'}">
+            return `<a href="${item.href}" title="${item.label}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${active ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'}">
               ${ICONS[item.icon] || ''}
-              <span>${item.label}</span>
+              <span class="sidebar-label">${item.label}</span>
             </a>`;
           }).join('')}
         </nav>
+
+        <!-- Collapse button (desktop) -->
+        <div class="hidden lg:block px-3 py-2 border-t border-gray-200 dark:border-gray-700">
+          <button id="sidebar-collapse-btn" title="Collapse sidebar" class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+            <svg class="w-5 h-5 transition-transform" id="collapse-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7"/></svg>
+            <span class="sidebar-label text-xs">Collapse</span>
+          </button>
+        </div>
 
         <!-- Profile -->
         <div class="px-4 py-3 border-t border-gray-200 dark:border-gray-700">
           <div class="flex items-center gap-3">
             <div class="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center text-indigo-700 dark:text-indigo-300 text-xs font-bold">${esc((name || '?').slice(0, 2).toUpperCase())}</div>
-            <div class="flex-1 min-w-0">
+            <div class="flex-1 min-w-0 sidebar-label">
               <p class="text-sm font-medium text-gray-900 dark:text-white truncate">${esc(name)}</p>
               <p class="text-xs text-gray-500 dark:text-gray-400">${isAdmin ? 'Admin' : 'Data Enterer'}</p>
             </div>
@@ -140,6 +148,20 @@ function wireNavEvents() {
     });
   }
 
+  // Sidebar collapse (desktop)
+  const collapseBtn = document.getElementById('sidebar-collapse-btn');
+  if (collapseBtn && sidebar) {
+    // Restore persisted state
+    const collapsed = localStorage.getItem('sidebar-collapsed') === '1';
+    if (collapsed) applySidebarCollapse(true);
+
+    collapseBtn.addEventListener('click', () => {
+      const isCollapsed = sidebar.classList.contains('w-16');
+      applySidebarCollapse(!isCollapsed);
+      try { localStorage.setItem('sidebar-collapsed', isCollapsed ? '0' : '1'); } catch (e) {}
+    });
+  }
+
   // Theme toggle
   const themeBtn = document.getElementById('theme-btn');
   if (themeBtn) {
@@ -157,6 +179,27 @@ function wireNavEvents() {
       await jpost('/api/logout', {});
       window.location.href = '/';
     });
+  }
+}
+
+function applySidebarCollapse(collapse) {
+  const sidebar = document.getElementById('sidebar');
+  const main = document.querySelector('main');
+  const icon = document.getElementById('collapse-icon');
+  if (!sidebar) return;
+
+  if (collapse) {
+    sidebar.classList.remove('w-64');
+    sidebar.classList.add('w-16');
+    sidebar.querySelectorAll('.sidebar-label').forEach(el => el.classList.add('hidden'));
+    if (main) { main.classList.remove('lg:ml-64'); main.classList.add('lg:ml-16'); }
+    if (icon) icon.classList.add('rotate-180');
+  } else {
+    sidebar.classList.remove('w-16');
+    sidebar.classList.add('w-64');
+    sidebar.querySelectorAll('.sidebar-label').forEach(el => el.classList.remove('hidden'));
+    if (main) { main.classList.remove('lg:ml-16'); main.classList.add('lg:ml-64'); }
+    if (icon) icon.classList.remove('rotate-180');
   }
 }
 

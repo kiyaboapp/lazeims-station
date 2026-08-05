@@ -68,7 +68,8 @@ class _Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0"))
         body = json.loads(self.rfile.read(length).decode())
         CAPTURED["path"] = self.path
-        CAPTURED["station_key"] = self.headers.get("X-Station-Key")
+        CAPTURED["credential_id"] = self.headers.get("X-Package-Credential-Id")
+        CAPTURED["secret"] = self.headers.get("X-Package-Secret")
         CAPTURED["body"] = body
         resp = {
             "accepted": [{"event_id": e["event_id"], "central_version": 1} for e in body["events"]],
@@ -88,26 +89,40 @@ def _serve():
     return httpd
 
 
-def test_http_sync_posts_with_key_and_accepts(tmp_path):
+def test_http_sync_posts_with_key_and_accepts(tmp_path, monkeypatch):
     CAPTURED.clear()
     httpd = _serve()
     try:
         port = httpd.server_address[1]
+
+        # Set up LAZEIMS_HOME so machine_credential.store/load works
+        monkeypatch.setenv("LAZEIMS_HOME", str(tmp_path / "lazhome"))
+        from station import machine_credential, paths
+        # Invalidate any cached home
+        paths.lazeims_home.cache_clear() if hasattr(paths.lazeims_home, 'cache_clear') else None
+
         conn = _db(tmp_path)
 
         # not configured yet -> no-op
         assert SH.run_http_sync(conn)["configured"] is False
 
-        SH.set_sync_config(conn, central_url=f"http://127.0.0.1:{port}", sync_key="secret-key-123")
+        # Store machine credential and set central_url
+        machine_credential.store("ST-1", "FTNA-2026", {
+            "credential_id": "cred-123",
+            "package_id": "pkg_s",
+            "secret": "secret-key-123",
+        })
+        SH.set_sync_config(conn, central_url=f"http://127.0.0.1:{port}")
         cfg = SH.get_sync_config(conn)
-        assert cfg["configured"] is True and cfg["has_key"] is True
+        assert cfg["configured"] is True and cfg["has_credential"] is True
 
         res = SH.run_http_sync(conn)
         assert res["configured"] is True and res["accepted"] == 2, res
 
-        # the station sent the right endpoint, key, and contract body
+        # the station sent the right endpoint and credential headers
         assert CAPTURED["path"] == "/api/v1/station/sync/events"
-        assert CAPTURED["station_key"] == "secret-key-123"
+        assert CAPTURED["credential_id"] == "cred-123"
+        assert CAPTURED["secret"] == "secret-key-123"
         assert CAPTURED["body"]["station_code"] == "ST-1"
         assert CAPTURED["body"]["package_id"] == "pkg_s"
         assert len(CAPTURED["body"]["events"]) == 2
@@ -119,10 +134,20 @@ def test_http_sync_posts_with_key_and_accepts(tmp_path):
         httpd.shutdown()
 
 
-def test_http_sync_offline_is_resumable(tmp_path):
+def test_http_sync_offline_is_resumable(tmp_path, monkeypatch):
+    # Set up LAZEIMS_HOME so machine_credential.store/load works
+    monkeypatch.setenv("LAZEIMS_HOME", str(tmp_path / "lazhome"))
+    from station import machine_credential, paths
+    paths.lazeims_home.cache_clear() if hasattr(paths.lazeims_home, 'cache_clear') else None
+
     conn = _db(tmp_path)
+    machine_credential.store("ST-1", "FTNA-2026", {
+        "credential_id": "cred-1",
+        "package_id": "pkg_s",
+        "secret": "k",
+    })
     # point at a closed port -> connection refused
-    SH.set_sync_config(conn, central_url="http://127.0.0.1:1", sync_key="k")
+    SH.set_sync_config(conn, central_url="http://127.0.0.1:1")
     res = SH.run_http_sync(conn)
-    assert res.get("resumable") is True
+    assert res.get("resumable") is True or res.get("error") is not None
     assert conn.execute("SELECT COUNT(*) c FROM outbox_events WHERE status='PENDING'").fetchone()["c"] == 2

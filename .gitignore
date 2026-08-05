@@ -7,3 +7,6 @@ station_data/
 *.sqlite3
 *.sqlite3-*
 wheelhouse/
+
+# Tailwind standalone CLI binary (download with build script)
+/tailwindcss

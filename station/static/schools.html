@@ -4,13 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Schools - LAZEIMS Station</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = { darkMode: 'class' };
-    if (localStorage.getItem('theme') === 'dark') document.documentElement.classList.add('dark');
-  </script>
+  <link rel="stylesheet" href="/static/dist/tailwind.css">
+  <script>if (localStorage.getItem('theme') === 'dark') document.documentElement.classList.add('dark');</script>
 </head>
-<body class="bg-gray-50 dark:bg-gray-950 min-h-screen">
+<body class="bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100 min-h-screen">
   <div id="app">
     <main class="lg:ml-64 pt-0 min-h-screen">
       <div class="p-4 md:p-6 max-w-7xl mx-auto">
@@ -18,7 +15,7 @@
         <div class="flex flex-col sm:flex-row gap-3 mb-6">
           <div class="relative flex-1">
             <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-            <input id="search-input" type="text" placeholder="Search by centre number or name..." class="w-full pl-10 pr-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm">
+            <input id="search-input" type="text" placeholder="Search by centre number, name, council or region..." class="w-full pl-10 pr-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm">
           </div>
           <div class="flex gap-2">
             <select id="sort-select" class="px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm">
@@ -90,7 +87,7 @@
       let list = [...schools];
       if (searchTerm) {
         const q = searchTerm.toLowerCase();
-        list = list.filter(s => s.centre_number.toLowerCase().includes(q) || (s.name || '').toLowerCase().includes(q));
+        list = list.filter(s => s.centre_number.toLowerCase().includes(q) || (s.name || '').toLowerCase().includes(q) || (s.council_name || '').toLowerCase().includes(q) || (s.region_name || '').toLowerCase().includes(q));
       }
       list.sort((a, b) => {
         if (sortField === 'centre') return a.centre_number.localeCompare(b.centre_number);
@@ -118,6 +115,8 @@
             <tr class="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
               <th class="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-400">Centre #</th>
               <th class="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-400">School Name</th>
+              <th class="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-400">Council</th>
+              <th class="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-400">Region</th>
               <th class="text-center px-4 py-3 font-medium text-gray-600 dark:text-gray-400">Students</th>
               <th class="text-center px-4 py-3 font-medium text-gray-600 dark:text-gray-400">Scopes</th>
               <th class="px-4 py-3 font-medium text-gray-600 dark:text-gray-400">Progress</th>
@@ -132,6 +131,8 @@
                 <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer" data-idx="${i}" onclick="toggleDetail(${i})">
                   <td class="px-4 py-3 font-mono text-xs text-gray-900 dark:text-white">${esc(s.centre_number)}</td>
                   <td class="px-4 py-3 text-gray-900 dark:text-white font-medium">${esc(s.name || '-')}</td>
+                  <td class="px-4 py-3 text-gray-600 dark:text-gray-400 text-xs">${esc(s.council_name || '-')}</td>
+                  <td class="px-4 py-3 text-gray-600 dark:text-gray-400 text-xs">${esc(s.region_name || '-')}</td>
                   <td class="px-4 py-3 text-center text-gray-600 dark:text-gray-400">${fmt(s.students)}</td>
                   <td class="px-4 py-3 text-center"><span class="text-green-600 dark:text-green-400 font-medium">${s.finalized_scopes}</span><span class="text-gray-400">/${s.total_scopes}</span></td>
                   <td class="px-4 py-3">
@@ -147,7 +148,7 @@
                   </td>
                 </tr>
                 <tr id="detail-${i}" class="hidden">
-                  <td colspan="6" class="px-4 py-4 bg-gray-50 dark:bg-gray-900/50">
+                  <td colspan="8" class="px-4 py-4 bg-gray-50 dark:bg-gray-900/50">
                     ${renderScopeDetail(s)}
                   </td>
                 </tr>`;

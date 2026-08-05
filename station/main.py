@@ -625,6 +625,20 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
             return _verr(e)
         return {"result": result}
 
+    @app.put("/api/marks/students/{student_id}", tags=["entry"])
+    def marks_by_id(student_id: str, payload: MarksIn, conn=Depends(db), a=Depends(actor)):
+        """Path-style route: PUT /api/marks/students/S-1"""
+        items = {i.question_number: i.marks for i in payload.items} if payload.items else None
+        try:
+            result = entry_svc.apply_student_paper_marks(
+                conn, student_id=student_id, subject_code=payload.subject_code,
+                paper_type=payload.paper_type, mode=payload.mode,
+                total_marks_obtained=payload.total_marks_obtained, items=items,
+                actor_assignment_id=a["assignment_id"])
+        except ValidationError as e:
+            return _verr(e)
+        return {"result": result}
+
     @app.put("/api/marks/students/{centre_number}/{student_seq}", tags=["entry"])
     def marks_compat(centre_number: str, student_seq: str, payload: MarksIn,
                      conn=Depends(db), a=Depends(actor)):
@@ -1322,91 +1336,136 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
 
     @app.get("/api/schools", tags=["progress"])
     def schools(conn=Depends(db), a=Depends(actor)):
-        """Per-school progress: scopes, marks, attendance counts."""
-        schools_rows = conn.execute(
-            "SELECT centre_number, name FROM schools ORDER BY centre_number"
+        """Per-school progress: scopes, marks, attendance counts.
+
+        Uses aggregate queries instead of per-school/per-subject loops.
+        """
+        # 1. All schools (static)
+        schools_map = {}
+        for row in conn.execute(
+            "SELECT centre_number, name, council_name, region_name FROM schools ORDER BY centre_number"
+        ).fetchall():
+            schools_map[row["centre_number"]] = {
+                "centre_number": row["centre_number"],
+                "name": row["name"],
+                "council_name": row["council_name"],
+                "region_name": row["region_name"],
+                "students": 0,
+                "total_scopes": 0,
+                "finalized_scopes": 0,
+                "scopes": [],
+            }
+
+        # 2. Student counts per school
+        for row in conn.execute(
+            "SELECT centre_number, COUNT(*) c FROM students GROUP BY centre_number"
+        ).fetchall():
+            if row["centre_number"] in schools_map:
+                schools_map[row["centre_number"]]["students"] = row["c"]
+
+        # 3. Build all scope keys: school × subject × paper
+        # First get distinct subjects per school
+        scope_rows = conn.execute(
+            "SELECT s.centre_number, ss.subject_code"
+            " FROM students s"
+            " JOIN student_subjects ss ON ss.student_id = s.student_id"
+            " GROUP BY s.centre_number, ss.subject_code"
         ).fetchall()
-        out = []
-        for school in schools_rows:
-            cn = school["centre_number"]
-            # Subjects assigned to this school
-            subject_rows = conn.execute(
-                "SELECT DISTINCT ss.subject_code FROM students s"
-                " JOIN student_subjects ss ON ss.student_id = s.student_id"
-                " WHERE s.centre_number = ?", (cn,)
-            ).fetchall()
 
-            total_scopes = 0
-            finalized_scopes = 0
-            scope_details = []
-            for sr in subject_rows:
-                sc = sr["subject_code"]
-                subj = conn.execute(
-                    "SELECT name, total_theory2, total_practical FROM subjects WHERE subject_code=?",
-                    (sc,)).fetchone()
-                papers = ["THEORY1"]
-                if subj and subj["total_theory2"]: papers.append("THEORY2")
-                if subj and subj["total_practical"]: papers.append("PRACTICAL")
+        # Subject metadata (cached lookup)
+        subjects_meta = {}
+        for row in conn.execute(
+            "SELECT subject_code, name, total_theory2, total_practical FROM subjects"
+        ).fetchall():
+            subjects_meta[row["subject_code"]] = row
 
-                for paper in papers:
-                    total_scopes += 1
-                    key = f"{cn}|{sc}|{paper}"
-                    fin = conn.execute(
-                        "SELECT 1 FROM finalized_scopes WHERE scope_key=?", (key,)
-                    ).fetchone()
-                    lock = conn.execute(
-                        "SELECT owner, status FROM work_locks WHERE scope_key=?", (key,)
-                    ).fetchone()
-                    st_total = conn.execute(
-                        "SELECT COUNT(*) c FROM students s"
-                        " JOIN student_subjects ss ON ss.student_id=s.student_id"
-                        " WHERE s.centre_number=? AND ss.subject_code=?",
-                        (cn, sc)
-                    ).fetchone()["c"]
-                    marks_done = conn.execute(
-                        "SELECT COUNT(*) c FROM total_marks tm"
-                        " JOIN students s ON s.student_id=tm.student_id"
-                        " WHERE s.centre_number=? AND tm.subject_code=? AND tm.paper_type=?",
-                        (cn, sc, paper)
-                    ).fetchone()["c"]
-                    att_present = conn.execute(
-                        "SELECT COUNT(*) c FROM attendance a"
-                        " JOIN students s ON s.student_id=a.student_id"
-                        " WHERE s.centre_number=? AND a.subject_code=? AND a.paper_type=? AND a.is_present=1",
-                        (cn, sc, paper)
-                    ).fetchone()["c"]
-                    att_absent = conn.execute(
-                        "SELECT COUNT(*) c FROM attendance a"
-                        " JOIN students s ON s.student_id=a.student_id"
-                        " WHERE s.centre_number=? AND a.subject_code=? AND a.paper_type=? AND a.is_present=0",
-                        (cn, sc, paper)
-                    ).fetchone()["c"]
-                    if fin: finalized_scopes += 1
-                    scope_details.append({
-                        "subject_code": sc,
-                        "subject_name": subj["name"] if subj else sc,
-                        "paper_type": paper,
-                        "finalized": fin is not None,
-                        "lock_status": lock["status"] if lock else None,
-                        "students": st_total,
-                        "marks_entered": marks_done,
-                        "att_present": att_present,
-                        "att_absent": att_absent,
-                    })
+        # Build the full scope list per school
+        scope_keys_by_school = {}  # centre -> [(subject_code, paper_type), ...]
+        for row in scope_rows:
+            cn = row["centre_number"]
+            sc = row["subject_code"]
+            if cn not in schools_map:
+                continue
+            subj = subjects_meta.get(sc)
+            papers = ["THEORY1"]
+            if subj and subj["total_theory2"]:
+                papers.append("THEORY2")
+            if subj and subj["total_practical"]:
+                papers.append("PRACTICAL")
+            if cn not in scope_keys_by_school:
+                scope_keys_by_school[cn] = []
+            for p in papers:
+                scope_keys_by_school[cn].append((sc, p))
 
-            students_total = conn.execute(
-                "SELECT COUNT(*) c FROM students WHERE centre_number=?", (cn,)
-            ).fetchone()["c"]
+        # 4. Batch query: finalized scopes
+        finalized_set = set()
+        for row in conn.execute("SELECT scope_key FROM finalized_scopes").fetchall():
+            finalized_set.add(row["scope_key"])
 
-            out.append({
-                "centre_number": cn,
-                "name": school["name"],
-                "students": students_total,
-                "total_scopes": total_scopes,
-                "finalized_scopes": finalized_scopes,
-                "scopes": scope_details,
-            })
-        return out
+        # 5. Batch query: active locks
+        locks_map = {}
+        for row in conn.execute("SELECT scope_key, owner, status FROM work_locks").fetchall():
+            locks_map[row["scope_key"]] = row["status"]
+
+        # 6. Batch query: marks count per school/subject/paper
+        marks_counts = {}
+        for row in conn.execute(
+            "SELECT s.centre_number, tm.subject_code, tm.paper_type, COUNT(*) c"
+            " FROM total_marks tm"
+            " JOIN students s ON s.student_id = tm.student_id"
+            " GROUP BY s.centre_number, tm.subject_code, tm.paper_type"
+        ).fetchall():
+            marks_counts[(row["centre_number"], row["subject_code"], row["paper_type"])] = row["c"]
+
+        # 7. Batch query: attendance counts per school/subject/paper
+        att_counts = {}
+        for row in conn.execute(
+            "SELECT s.centre_number, a.subject_code, a.paper_type, a.is_present, COUNT(*) c"
+            " FROM attendance a"
+            " JOIN students s ON s.student_id = a.student_id"
+            " GROUP BY s.centre_number, a.subject_code, a.paper_type, a.is_present"
+        ).fetchall():
+            key = (row["centre_number"], row["subject_code"], row["paper_type"])
+            if key not in att_counts:
+                att_counts[key] = {"present": 0, "absent": 0}
+            if row["is_present"]:
+                att_counts[key]["present"] = row["c"]
+            else:
+                att_counts[key]["absent"] = row["c"]
+
+        # 8. Batch query: student count per school/subject
+        student_subject_counts = {}
+        for row in conn.execute(
+            "SELECT s.centre_number, ss.subject_code, COUNT(*) c"
+            " FROM students s"
+            " JOIN student_subjects ss ON ss.student_id = s.student_id"
+            " GROUP BY s.centre_number, ss.subject_code"
+        ).fetchall():
+            student_subject_counts[(row["centre_number"], row["subject_code"])] = row["c"]
+
+        # 9. Assemble results
+        for cn, scopes in scope_keys_by_school.items():
+            school = schools_map[cn]
+            for sc, paper in scopes:
+                key = f"{cn}|{sc}|{paper}"
+                subj = subjects_meta.get(sc)
+                fin = key in finalized_set
+                school["total_scopes"] += 1
+                if fin:
+                    school["finalized_scopes"] += 1
+                school["scopes"].append({
+                    "subject_code": sc,
+                    "subject_name": subj["name"] if subj else sc,
+                    "paper_type": paper,
+                    "finalized": fin,
+                    "lock_status": locks_map.get(key),
+                    "students": student_subject_counts.get((cn, sc), 0),
+                    "marks_entered": marks_counts.get((cn, sc, paper), 0),
+                    "att_present": att_counts.get((cn, sc, paper), {}).get("present", 0),
+                    "att_absent": att_counts.get((cn, sc, paper), {}).get("absent", 0),
+                })
+
+        return list(schools_map.values())
 
     @app.get("/api/admin/progress/detail", tags=["admin"])
     def progress_detail(conn=Depends(db), a=Depends(actor)):

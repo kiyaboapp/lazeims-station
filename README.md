@@ -44,3 +44,31 @@ signed, HttpOnly cookies; role/scope derive from the local user row.
 ```bash
 pytest
 ```
+
+## Rebuilding CSS
+
+The UI uses pre-compiled Tailwind CSS (no CDN, fully offline). After changing
+HTML classes or adding custom styles to `station/static/src/input.css`:
+
+**Linux / macOS:**
+
+```bash
+# Download the standalone CLI (first time only, ~60 MB, git-ignored)
+curl -sLo tailwindcss https://github.com/tailwindlabs/tailwindcss/releases/download/v3.4.17/tailwindcss-linux-x64
+chmod +x tailwindcss
+
+# Rebuild
+./tailwindcss -i station/static/src/input.css -o station/static/dist/tailwind.css --minify
+```
+
+**Windows (PowerShell):**
+
+```powershell
+# Download the standalone CLI (first time only)
+Invoke-WebRequest -Uri https://github.com/tailwindlabs/tailwindcss/releases/download/v3.4.17/tailwindcss-windows-x64.exe -OutFile tailwindcss.exe
+
+# Rebuild
+.\tailwindcss.exe -i station\static\src\input.css -o station\static\dist\tailwind.css --minify
+```
+
+Chart.js is also vendored locally at `station/static/vendor/chart.min.js`.

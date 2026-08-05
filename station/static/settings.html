@@ -4,13 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Settings - LAZEIMS Station</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = { darkMode: 'class' };
-    if (localStorage.getItem('theme') === 'dark') document.documentElement.classList.add('dark');
-  </script>
+  <link rel="stylesheet" href="/static/dist/tailwind.css">
+  <script>if (localStorage.getItem('theme') === 'dark') document.documentElement.classList.add('dark');</script>
 </head>
-<body class="bg-gray-50 dark:bg-gray-950 min-h-screen">
+<body class="bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100 min-h-screen">
   <div id="app">
     <main class="lg:ml-64 pt-0 min-h-screen">
       <div class="p-4 md:p-6 max-w-7xl mx-auto space-y-6">

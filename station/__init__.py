@@ -7,4 +7,4 @@ SOFTWARE_VERSION = "1.0.0"
 # Sync/rules contract this build understands (must match the package).
 SUPPORTED_RULES_VERSIONS = {"1.0"}
 # Local SQLite schema version this build expects.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4

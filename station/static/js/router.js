@@ -5,6 +5,8 @@ import { SESSION, SIDEBAR_OPEN, setState, SCOPES } from './state.js';
 const VIEWS = ['login', 'dashboard-de', 'dashboard-admin', 'schools', 'scopes', 'users', 'settings', 'audit', 'entry-portal', 'entry'];
 
 export function showView(name) {
+  // Allow per-page override (multi-page mode: entry.html sets window.showView)
+  if (window.showView && window.showView !== showView) { window.showView(name); return; }
   VIEWS.forEach(v => {
     const el = $('view-' + v);
     if (el) { el.hidden = (v !== name); el.classList.toggle('active', v === name); }

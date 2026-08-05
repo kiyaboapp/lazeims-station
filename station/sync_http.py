@@ -135,7 +135,7 @@ def run_http_sync(conn: sqlite3.Connection) -> dict:
     try:
         result = run_sync(conn, transport)
         log.warning("[run_http_sync] run_sync result=%r", result)
-        return result
+        return {"configured": True, **result}
     except RuntimeError as exc:
         log.warning("[run_http_sync] RuntimeError: %s", exc)
-        return {"configured": True, "error": str(exc)}
+        return {"configured": True, "error": str(exc), "resumable": True}

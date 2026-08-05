@@ -4,14 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LAZEIMS Station</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script>
-    tailwind.config = { darkMode: 'class' };
-    if (localStorage.getItem('theme') === 'dark') document.documentElement.classList.add('dark');
-  </script>
+  <link rel="stylesheet" href="/static/dist/tailwind.css">
+  <script src="/static/vendor/chart.min.js"></script>
+  <script>if (localStorage.getItem('theme') === 'dark') document.documentElement.classList.add('dark');</script>
 </head>
-<body class="bg-gray-50 dark:bg-gray-950 min-h-screen">
+<body class="bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100 min-h-screen">
   <div id="app">
     <!-- Login Section (shown when not authenticated) -->
     <div id="login-section" class="min-h-screen flex items-center justify-center p-4">
@@ -68,11 +65,11 @@
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
                 <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Marks Per Day (Last 14 Days)</h3>
-                <canvas id="marks-per-day-chart" height="200"></canvas>
+                <div class="relative h-[200px]"><canvas id="marks-per-day-chart"></canvas></div>
               </div>
               <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
                 <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Overall Progress</h3>
-                <canvas id="progress-doughnut-chart" height="200"></canvas>
+                <div class="relative h-[200px]"><canvas id="progress-doughnut-chart"></canvas></div>
               </div>
             </div>
 
@@ -80,7 +77,7 @@
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
                 <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">School Completion</h3>
-                <canvas id="school-completion-chart" height="200"></canvas>
+                <div class="relative h-[200px]"><canvas id="school-completion-chart"></canvas></div>
               </div>
               <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
                 <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Top Enterers</h3>
@@ -103,7 +100,7 @@
             <!-- Progress Chart -->
             <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
               <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">My Progress</h3>
-              <canvas id="de-progress-chart" height="160"></canvas>
+              <div class="relative h-[160px]"><canvas id="de-progress-chart"></canvas></div>
             </div>
 
             <!-- My Scopes -->
@@ -124,6 +121,7 @@
 
     let SESSION = null;
     let chartsInitialized = false;
+    const _charts = {};
 
     async function boot() {
       // Check station availability
@@ -331,7 +329,8 @@
     function renderMarksPerDayChart(data) {
       const ctx = document.getElementById('marks-per-day-chart');
       if (!ctx) return;
-      new Chart(ctx, {
+      if (_charts.marksPerDay) _charts.marksPerDay.destroy();
+      _charts.marksPerDay = new Chart(ctx, {
         type: 'line',
         data: {
           labels: data.map(d => d.date.slice(5)),
@@ -356,7 +355,8 @@
     function renderProgressDoughnut(fin, total) {
       const ctx = document.getElementById('progress-doughnut-chart');
       if (!ctx) return;
-      new Chart(ctx, {
+      if (_charts.progressDoughnut) _charts.progressDoughnut.destroy();
+      _charts.progressDoughnut = new Chart(ctx, {
         type: 'doughnut',
         data: {
           labels: ['Finalized', 'Remaining'],
@@ -380,7 +380,8 @@
     function renderDEProgressChart(fin, total) {
       const ctx = document.getElementById('de-progress-chart');
       if (!ctx) return;
-      new Chart(ctx, {
+      if (_charts.deProgress) _charts.deProgress.destroy();
+      _charts.deProgress = new Chart(ctx, {
         type: 'doughnut',
         data: {
           labels: ['Completed', 'Remaining'],
@@ -402,8 +403,9 @@
     function renderSchoolCompletionChart(subjectProgress, perSchool) {
       const ctx = document.getElementById('school-completion-chart');
       if (!ctx) return;
+      if (_charts.schoolCompletion) _charts.schoolCompletion.destroy();
       const schools = perSchool.slice(0, 10);
-      new Chart(ctx, {
+      _charts.schoolCompletion = new Chart(ctx, {
         type: 'bar',
         data: {
           labels: schools.map(s => s.centre_number),
