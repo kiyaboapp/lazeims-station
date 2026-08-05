@@ -1,9 +1,10 @@
 // entry.js — attendance tab + marks tab (total + CAL)
 import { $, api, jpost, jput, esc, fmt, isValidMark, setMsg } from './api.js';
 import { SESSION, CURRENT, ROSTER, ATT, ATT_PERSISTED, ATT_SAVING, MARKS, DEBOUNCE_T, SCOPES, setState } from './state.js';
-import { showView } from './router.js?v=2';
 import { dbGet, dbSet, dbDel, draftKey } from './idb.js';
 import { loadPortal } from './portal.js';
+
+function showView(name) { if (window._showViewOverride) window._showViewOverride(name); }
 
 export async function enterScope(i) {
   const scope = SCOPES[i];
