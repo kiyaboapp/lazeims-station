@@ -45,10 +45,19 @@ function renderAttTable() {
   if (!ROSTER.length) { $('att-tbody').innerHTML = '<tr><td colspan="4" class="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">No students registered for this subject at this school.</td></tr>'; updateAttSummary(); return; }
   $('att-tbody').innerHTML = ROSTER.map((s, i) => {
     const p = ATT[s.student_id] !== false;
-    return `<tr class="att-row ${!p ? 'row-absent' : ''}" data-i="${i}" tabindex="0" onkeydown="attKey(event,${i},'${esc(s.student_id)}')">
-      <td class="col-n">${i + 1}</td><td class="col-id">${esc(s.student_id)}</td>
-      <td>${esc(s.full_name)}</td>
-      <td class="col-att"><button class="att-toggle ${p ? 'att-p' : 'att-a'}" onclick="attToggle('${esc(s.student_id)}',${i})" aria-label="${p ? 'Present' : 'Absent'}"><span class="att-lp">P</span><span class="att-knob"></span><span class="att-la">A</span></button>${ATT_SAVING[s.student_id] ? '<span class="saving-dot"></span>' : ''}</td>
+    const persisted = ATT_PERSISTED[s.student_id];
+    const saving = ATT_SAVING[s.student_id];
+    return `<tr class="outline-none transition-colors ${!p ? 'bg-red-50 dark:bg-red-950/30' : ''} hover:bg-gray-50 dark:hover:bg-gray-800/50 focus:bg-indigo-50 dark:focus:bg-indigo-900/20 focus:ring-1 focus:ring-inset focus:ring-indigo-300" data-i="${i}" tabindex="0" onkeydown="attKey(event,${i},'${esc(s.student_id)}')">
+      <td class="px-3 py-2.5 text-sm text-gray-500 dark:text-gray-400 font-medium w-8 text-right tabular-nums">${i + 1}</td>
+      <td class="px-3 py-2.5 font-mono text-sm font-medium text-gray-900 dark:text-white">${esc(s.student_id)}</td>
+      <td class="px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300">${esc(s.full_name)}</td>
+      <td class="px-3 py-2.5 text-right">
+        <div class="inline-flex items-center gap-2">
+          ${persisted && !saving ? '<span class="text-emerald-600 text-sm">✓</span>' : ''}
+          ${saving ? '<span class="saving-dot"></span>' : ''}
+          <button class="att-toggle ${p ? 'att-p' : 'att-a'}" onclick="attToggle('${esc(s.student_id)}',${i})" aria-pressed="${p}" aria-label="${p ? 'Present' : 'Absent'}"><span class="att-lp">P</span><span class="att-knob"></span><span class="att-la">A</span></button>
+        </div>
+      </td>
     </tr>`;
   }).join('');
   updateAttSummary();
@@ -91,26 +100,27 @@ function updateAttSummary() {
 
 // ── Marks ──
 function markSt(st, inv) {
-  if (inv) return '<span class="st-err">Invalid</span>';
-  if (st === 'saving') return '<span class="st-saving">Saving…</span>';
-  if (st === 'saved') return '<span class="st-saved">✓</span>';
-  if (st === 'dirty') return '<span class="st-dirty">Unsaved</span>';
-  if (st === 'error') return '<span class="st-err">Failed</span>';
+  if (inv) return '<span class="text-xs text-red-600 dark:text-red-400 font-medium">Invalid</span>';
+  if (st === 'saving') return '<span class="text-xs text-amber-600 dark:text-amber-400">Saving…</span>';
+  if (st === 'saved') return '<span class="text-xs text-emerald-600 dark:text-emerald-400">✓</span>';
+  if (st === 'dirty') return '<span class="text-xs text-indigo-600 dark:text-indigo-400">Unsaved</span>';
+  if (st === 'error') return '<span class="text-xs text-red-600 dark:text-red-400">Failed</span>';
   return '';
 }
 
 function renderMarksTable() {
-  if (!ROSTER.length) { $('marks-tbody').innerHTML = '<tr><td colspan="6" class="td-empty">No students.</td></tr>'; return; }
+  if (!ROSTER.length) { $('marks-tbody').innerHTML = '<tr><td colspan="6" class="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">No students registered for this subject at this school.</td></tr>'; return; }
   $('marks-tbody').innerHTML = ROSTER.map((s, i) => {
     const p = ATT[s.student_id] !== false;
     const cell = MARKS[s.student_id] || { value: '', status: 'idle' };
     const inv = !isValidMark(cell.value) && cell.value !== '';
-    return `<tr class="${!p ? 'row-absent' : ''}">
-      <td class="col-n">${i + 1}</td><td class="col-id">${esc(s.student_id)}</td>
-      <td>${esc(s.full_name)}</td>
-      <td class="col-att"><span class="badge ${p ? 'badge-open' : 'badge-locked'}">${p ? 'P' : 'A'}</span></td>
-      <td class="col-marks">${p ? `<div class="marks-cell"><input class="marks-inp${inv ? ' bad' : ''}" type="text" inputmode="decimal" value="${esc(cell.value)}" data-sid="${esc(s.student_id)}" placeholder="marks" oninput="marksChange('${esc(s.student_id)}',this.value)" onblur="flushMarks()" onkeydown="marksKey(event,'${esc(s.student_id)}',${i})"/></div>` : '<span class="muted">—</span>'}</td>
-      <td id="mst-${esc(s.student_id)}">${markSt(cell.status, inv)}</td>
+    return `<tr class="transition-colors ${!p ? 'bg-red-50 dark:bg-red-950/30' : ''} hover:bg-gray-50 dark:hover:bg-gray-800/50">
+      <td class="px-3 py-2 text-sm text-gray-500 dark:text-gray-400 font-medium text-center tabular-nums">${i + 1}</td>
+      <td class="px-3 py-2 font-mono text-sm font-medium text-gray-900 dark:text-white">${esc(s.student_id)}</td>
+      <td class="px-3 py-2 text-sm text-gray-700 dark:text-gray-300">${esc(s.full_name)}</td>
+      <td class="px-3 py-2 text-center">${p ? '<span class="text-emerald-700 dark:text-emerald-400 font-bold text-xs">P</span>' : '<span class="inline-flex px-1.5 py-0.5 rounded bg-red-600 text-white font-bold text-[10px]">A</span>'}</td>
+      <td class="px-3 py-2">${p ? `<input class="marks-inp w-20 px-2 py-1 rounded border ${inv ? 'border-red-400 bg-red-50 dark:bg-red-950/30' : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800'} text-gray-900 dark:text-white tabular-nums text-sm text-center focus:outline-none focus:ring-2 focus:ring-indigo-300 dark:focus:ring-indigo-600" type="text" inputmode="decimal" value="${esc(cell.value)}" data-sid="${esc(s.student_id)}" placeholder="—" oninput="marksChange('${esc(s.student_id)}',this.value)" onblur="flushMarks()" onkeydown="marksKey(event,'${esc(s.student_id)}',${i})"/>` : '<span class="text-gray-400 dark:text-gray-500">—</span>'}</td>
+      <td class="px-3 py-2 text-center" id="mst-${esc(s.student_id)}">${markSt(cell.status, inv)}</td>
     </tr>`;
   }).join('');
   updateMarksSummary();
