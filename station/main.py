@@ -520,6 +520,10 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
                 key = locking.scope_key(r["centre_number"], r["subject_code"], p)
                 lock = conn.execute("SELECT owner, status FROM work_locks WHERE scope_key=?", (key,)).fetchone()
                 fin = conn.execute("SELECT 1 FROM finalized_scopes WHERE scope_key=?", (key,)).fetchone()
+                lock_owner_name = None
+                if lock and lock["owner"]:
+                    user_row = conn.execute("SELECT initials FROM station_users WHERE id=?", (lock["owner"],)).fetchone()
+                    lock_owner_name = user_row["initials"] if user_row else str(lock["owner"])
                 out.append({
                     "centre_number": r["centre_number"],
                     "school_name": school["name"] if school else r["centre_number"],
@@ -527,7 +531,7 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
                     "subject_name": subj["name"] if subj else r["subject_code"],
                     "paper_type": p,
                     "lock_status": (lock["status"] if lock else None),
-                    "lock_owner": (lock["owner"] if lock else None),
+                    "lock_owner": lock_owner_name,
                     "finalized": fin is not None,
                 })
         return out
