@@ -52,16 +52,15 @@
           <!-- Attendance Tab -->
           <div id="tab-attendance">
             <div class="flex flex-wrap items-center gap-3 mb-3">
-              <button id="mark-all-present" class="px-3 py-1.5 text-xs font-medium bg-green-600 text-white rounded-lg hover:bg-green-700">Mark All Present</button>
-              <button id="save-attendance" class="px-3 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Save & continue to Marks</button>
-              <span id="att-summary" class="text-xs text-gray-500 dark:text-gray-400"></span>
+              <span id="att-summary" class="text-sm font-medium text-gray-700 dark:text-gray-300"></span>
               <span id="att-absent-hint"></span>
+              <button id="mark-all-present" class="ml-auto px-3 py-1.5 text-xs font-medium bg-green-600 text-white rounded-lg hover:bg-green-700">Mark All Present</button>
             </div>
             <div id="att-validation" hidden class="marks-validation"></div>
-            <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-x-auto">
+            <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-x-auto max-h-[60vh] overflow-y-auto">
               <table class="w-full text-sm">
-                <thead>
-                  <tr class="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
+                <thead class="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900">
+                  <tr class="border-b border-gray-200 dark:border-gray-700">
                     <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">#</th>
                     <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">ID</th>
                     <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">Name</th>
@@ -71,20 +70,21 @@
                 <tbody id="att-tbody"></tbody>
               </table>
             </div>
+            <div class="mt-4 flex justify-end">
+              <button id="save-attendance" class="px-5 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">Save & Continue to Marks →</button>
+            </div>
           </div>
 
           <!-- Marks Tab -->
           <div id="tab-marks" hidden>
             <div class="flex flex-wrap items-center gap-3 mb-3">
-              <span id="marks-summary" class="text-xs text-gray-500 dark:text-gray-400"></span>
-              <button id="check-completeness" class="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700">Check completeness</button>
-              <button id="finalize-btn" class="px-3 py-1.5 text-xs font-medium bg-green-600 text-white rounded-lg hover:bg-green-700">Finalize Scope</button>
+              <span id="marks-summary" class="text-sm font-medium text-gray-700 dark:text-gray-300"></span>
             </div>
             <div id="marks-validation" hidden class="marks-validation"></div>
-            <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-x-auto">
+            <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-x-auto max-h-[60vh] overflow-y-auto">
               <table class="w-full text-sm">
-                <thead>
-                  <tr class="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
+                <thead class="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900">
+                  <tr class="border-b border-gray-200 dark:border-gray-700">
                     <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">#</th>
                     <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">ID</th>
                     <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">Name</th>
@@ -95,6 +95,10 @@
                 </thead>
                 <tbody id="marks-tbody"></tbody>
               </table>
+            </div>
+            <div class="mt-4 flex items-center gap-3 justify-end">
+              <button id="check-completeness" class="px-4 py-2.5 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Check Completeness</button>
+              <button id="finalize-btn" class="px-5 py-2.5 text-sm font-medium bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">Finalize Scope ✓</button>
             </div>
           </div>
 
