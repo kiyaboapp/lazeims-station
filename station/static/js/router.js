@@ -16,11 +16,12 @@ export function showView(name) {
   document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === navName));
   const noSide = name === 'login';
   const sidebar = $('sidebar');
-  sidebar.hidden = noSide;
-  $('main-area').classList.toggle('no-sidebar', noSide);
+  if (sidebar) sidebar.hidden = noSide;
+  const mainArea = $('main-area');
+  if (mainArea) mainArea.classList.toggle('no-sidebar', noSide);
   if (window.innerWidth < 769) {
-    setState.sidebarOpen(false);
-    sidebar.classList.remove('mobile-open');
+    if (typeof setState !== 'undefined' && setState.sidebarOpen) setState.sidebarOpen(false);
+    if (sidebar) sidebar.classList.remove('mobile-open');
     const ov = $('sidebar-overlay'); if (ov) ov.classList.remove('active');
   }
 }
