@@ -41,7 +41,7 @@ function switchEntryTab(tab) {
 
 // ── Attendance ──
 function renderAttTable() {
-  if (!ROSTER.length) { $('att-tbody').innerHTML = '<tr><td colspan="4" class="td-empty">No students.</td></tr>'; updateAttSummary(); return; }
+  if (!ROSTER.length) { $('att-tbody').innerHTML = '<tr><td colspan="4" class="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">No students registered for this subject at this school.</td></tr>'; updateAttSummary(); return; }
   $('att-tbody').innerHTML = ROSTER.map((s, i) => {
     const p = ATT[s.student_id] !== false;
     return `<tr class="att-row ${!p ? 'row-absent' : ''}" data-i="${i}" tabindex="0" onkeydown="attKey(event,${i},'${esc(s.student_id)}')">
