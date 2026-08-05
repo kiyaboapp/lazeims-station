@@ -13,14 +13,22 @@
       <div class="p-4 md:p-6 max-w-7xl mx-auto">
         <!-- Portal View (scope selection) -->
         <div id="view-entry-portal">
-          <!-- Filter chips -->
-          <div id="portal-chips" class="flex flex-wrap gap-2 mb-4">
-            <button class="chip px-3 py-1.5 rounded-lg text-sm font-medium bg-indigo-600 text-white active" data-f="all">All</button>
-            <button class="chip px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300" data-f="open">Open</button>
-            <button class="chip px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300" data-f="finalized">Finalized</button>
+          <!-- Search and filter bar -->
+          <div class="flex flex-col sm:flex-row gap-3 mb-4">
+            <div class="relative flex-1">
+              <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+              <input id="portal-search" type="text" placeholder="Search by school, centre number or subject..." class="w-full pl-10 pr-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm">
+            </div>
+            <div id="portal-chips" class="flex gap-2">
+              <button class="chip px-3 py-2 rounded-lg text-sm font-medium bg-indigo-600 text-white active" data-f="all">All</button>
+              <button class="chip px-3 py-2 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700" data-f="open">Open</button>
+              <button class="chip px-3 py-2 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700" data-f="finalized">Finalized</button>
+            </div>
           </div>
-          <!-- Scope list -->
-          <div id="portal-scope-list" class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-x-auto"></div>
+          <!-- Scope list table -->
+          <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <div id="portal-scope-list" class="overflow-x-auto"></div>
+          </div>
         </div>
 
         <!-- Entry View (active scope) -->
