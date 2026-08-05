@@ -34,6 +34,12 @@
           </form>
         </div>
 
+        <!-- Sync Status -->
+        <div id="sync-status-panel" class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+          <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Sync Status</h3>
+          <div id="sync-status-content" class="text-sm text-gray-500 dark:text-gray-400">Loading...</div>
+        </div>
+
         <!-- Sync Actions -->
         <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
           <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Sync Actions</h3>
@@ -99,7 +105,7 @@
       if (!session) return;
       setPageTitle('Settings');
 
-      await Promise.all([loadStationInfo(), loadSyncConfig(), loadRejected()]);
+      await Promise.all([loadStationInfo(), loadSyncConfig(), loadSyncStatus(), loadRejected()]);
     }
 
     async function loadStationInfo() {
@@ -123,6 +129,41 @@
         const cfg = await api('/api/sync/config').then(r => r.json());
         if (cfg.central_url) document.getElementById('central-url').value = cfg.central_url;
       } catch (e) {}
+    }
+
+    async function loadSyncStatus() {
+      try {
+        const progress = await api('/api/progress').then(r => r.json());
+        const pending = progress.pending_events || 0;
+        const rejected = progress.rejected_events || 0;
+        const el = document.getElementById('sync-status-content');
+        if (pending === 0 && rejected === 0) {
+          el.innerHTML = `<div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-green-500"></span><span class="text-green-700 dark:text-green-400 font-medium">All synced</span></div>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">No events waiting to be sent.</p>`;
+        } else {
+          el.innerHTML = `
+            <div class="grid grid-cols-2 gap-4">
+              <div class="flex items-center gap-3">
+                <span class="w-2.5 h-2.5 rounded-full ${pending > 0 ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}"></span>
+                <div>
+                  <span class="text-lg font-bold ${pending > 0 ? 'text-yellow-700 dark:text-yellow-400' : 'text-green-700 dark:text-green-400'}">${fmt(pending)}</span>
+                  <span class="text-xs text-gray-500 dark:text-gray-400 ml-1">pending</span>
+                </div>
+              </div>
+              <div class="flex items-center gap-3">
+                <span class="w-2.5 h-2.5 rounded-full ${rejected > 0 ? 'bg-red-500' : 'bg-green-500'}"></span>
+                <div>
+                  <span class="text-lg font-bold ${rejected > 0 ? 'text-red-700 dark:text-red-400' : 'text-green-700 dark:text-green-400'}">${fmt(rejected)}</span>
+                  <span class="text-xs text-gray-500 dark:text-gray-400 ml-1">rejected</span>
+                </div>
+              </div>
+            </div>
+            ${pending > 0 ? '<p class="text-xs text-yellow-600 dark:text-yellow-400 mt-2">Events waiting to be synced to Central. Click "Sync Now" or "Export Outbox" to send them.</p>' : ''}
+            ${rejected > 0 ? '<p class="text-xs text-red-600 dark:text-red-400 mt-1">Rejected events need attention. Check Rejected Events below or click "Retry Rejected".</p>' : ''}`;
+        }
+      } catch (e) {
+        document.getElementById('sync-status-content').textContent = 'Could not load sync status.';
+      }
     }
 
     async function loadRejected() {
