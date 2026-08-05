@@ -211,13 +211,22 @@
       try {
         const r = await jpost('/api/sync/run', {});
         const data = await r.json();
-        if (r.ok) {
-          msg.textContent = `Sync complete. ${data.pushed || 0} pushed, ${data.acked || 0} acked.`;
+        if (r.ok && data.error) {
+          msg.textContent = `Sync failed: ${data.error}`;
+          msg.className = 'text-sm min-h-[1.25rem] text-red-600 dark:text-red-400';
+        } else if (r.ok && !data.configured) {
+          msg.textContent = data.reason || 'Sync not configured.';
+          msg.className = 'text-sm min-h-[1.25rem] text-yellow-600 dark:text-yellow-400';
+        } else if (r.ok) {
+          const accepted = data.accepted || 0;
+          const sent = data.sent || 0;
+          msg.textContent = `Sync complete. ${accepted} events accepted${sent > accepted ? `, ${sent - accepted} pending retry` : ''}.`;
           msg.className = 'text-sm min-h-[1.25rem] text-green-600 dark:text-green-400';
         } else {
           msg.textContent = data.detail || 'Sync failed.';
           msg.className = 'text-sm min-h-[1.25rem] text-red-600 dark:text-red-400';
         }
+        await loadSyncStatus();
       } catch (e) { msg.textContent = 'Sync error: ' + e.message; msg.className = 'text-sm min-h-[1.25rem] text-red-600 dark:text-red-400'; }
     });
 
