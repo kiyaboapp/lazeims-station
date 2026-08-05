@@ -1906,6 +1906,15 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
     if _STATIC.exists():
         app.mount("/static", StaticFiles(directory=_STATIC), name="static")
 
+    @app.middleware("http")
+    async def no_cache_static_js(request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith("/static/") and (
+            request.url.path.endswith(".js") or request.url.path.endswith(".css")
+        ):
+            response.headers["Cache-Control"] = "no-cache, must-revalidate"
+        return response
+
     return app
 
 

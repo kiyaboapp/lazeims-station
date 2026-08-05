@@ -131,9 +131,9 @@
     window._showViewOverride = localShowView;
 
     // Now import entry modules (they will use the patched showView)
-    const { loadPortal, initPortal } = await import('./static/js/portal.js');
-    const { initEntry } = await import('./static/js/entry.js');
-    const { initFinalize } = await import('./static/js/finalize.js');
+    const { loadPortal, initPortal } = await import('./static/js/portal.js?v=2');
+    const { initEntry } = await import('./static/js/entry.js?v=2');
+    const { initFinalize } = await import('./static/js/finalize.js?v=2');
 
     async function boot() {
       const session = await initNav();
