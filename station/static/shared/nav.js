@@ -49,7 +49,7 @@ export async function initNav() {
       <div class="flex flex-col h-full">
         <!-- Logo -->
         <div class="flex items-center gap-3 px-5 py-4 border-b border-gray-200 dark:border-gray-700">
-          <div class="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold text-sm">L</div>
+          <img src="/static/logo.png" alt="LAZEIMS" class="w-8 h-8 rounded-lg object-contain">
           <div class="sidebar-label">
             <h1 class="text-sm font-bold text-gray-900 dark:text-white">LAZEIMS Station</h1>
             <p class="text-xs text-gray-500 dark:text-gray-400">${esc(station)}</p>

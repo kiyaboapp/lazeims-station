@@ -57,24 +57,60 @@ def evaluate(conn: sqlite3.Connection, centre_number: str, subject_code: str, pa
     open_students = {r["student_id"] for r in inc_rows if r["student_id"]}
     scope_wide_incident = any(r["student_id"] is None for r in inc_rows)
 
+    student_rows = _students_in_scope(conn, centre_number, subject_code)
+    student_ids = [r["student_id"] for r in student_rows]
+
+    if not student_ids:
+        result = evaluate_scope_completeness([], has_unresolved_scope_incident=scope_wide_incident)
+        out = result.as_dict()
+        out["student_count"] = 0
+        return out
+
+    # Batch attendance for all students in this scope
+    placeholders = ",".join("?" * len(student_ids))
+    att_rows = conn.execute(
+        f"SELECT student_id, paper_type, is_present FROM attendance"
+        f" WHERE student_id IN ({placeholders}) AND subject_code = ?",
+        (*student_ids, subject_code),
+    ).fetchall()
+    # Resolve per student: specific paper overrides ALL
+    att_specific: dict[str, bool] = {}
+    att_all: dict[str, bool] = {}
+    for r in att_rows:
+        if r["paper_type"] == paper_type.value:
+            att_specific[r["student_id"]] = bool(r["is_present"])
+        elif r["paper_type"] == "ALL":
+            att_all[r["student_id"]] = bool(r["is_present"])
+    att_map = {sid: att_specific.get(sid, att_all.get(sid, True)) for sid in student_ids}
+
+    # Batch marks
+    if is_item and required_qids:
+        q_placeholders = ",".join("?" * len(required_qids))
+        im_rows = conn.execute(
+            f"SELECT student_id, COUNT(*) c FROM item_marks"
+            f" WHERE student_id IN ({placeholders}) AND question_id IN ({q_placeholders})"
+            f" GROUP BY student_id",
+            (*student_ids, *required_qids),
+        ).fetchall()
+        im_counts = {r["student_id"]: r["c"] for r in im_rows}
+    elif not is_item:
+        tm_rows = conn.execute(
+            f"SELECT student_id FROM total_marks"
+            f" WHERE student_id IN ({placeholders}) AND subject_code = ? AND paper_type = ?",
+            (*student_ids, subject_code, paper_type.value),
+        ).fetchall()
+        tm_set = {r["student_id"] for r in tm_rows}
+
     states: list[StudentScopeState] = []
-    for row in _students_in_scope(conn, centre_number, subject_code):
-        sid = row["student_id"]
-        present = resolve_effective_attendance(conn, sid, subject_code, paper_type)
+    for sid in student_ids:
+        present = att_map.get(sid, True)
         if is_item:
             if required_qids:
-                cnt = conn.execute(
-                    f"SELECT COUNT(*) c FROM item_marks WHERE student_id=? AND question_id IN ({','.join('?'*len(required_qids))})",
-                    (sid, *required_qids),
-                ).fetchone()["c"]
-                complete = cnt == len(required_qids)
+                complete = im_counts.get(sid, 0) == len(required_qids)
             else:
                 complete = False
         else:
-            complete = conn.execute(
-                "SELECT 1 FROM total_marks WHERE student_id=? AND subject_code=? AND paper_type=?",
-                (sid, subject_code, paper_type.value),
-            ).fetchone() is not None
+            complete = sid in tm_set
         if not present:
             complete = True
         states.append(StudentScopeState(

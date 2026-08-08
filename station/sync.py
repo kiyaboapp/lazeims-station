@@ -58,17 +58,22 @@ def select_pending(conn: sqlite3.Connection, limit: int = BATCH_MAX) -> list[dic
 
 
 def _set_status(conn, event_ids, status, *, last_error=None, ack=False):
+    if not event_ids:
+        return
     now = datetime.now(timezone.utc).isoformat()
-    for eid in event_ids:
-        if ack:
-            conn.execute("UPDATE outbox_events SET status=?, ack_at=?, last_error=NULL WHERE event_id=?",
-                         (status, now, eid))
-        elif status == "PENDING":
+    placeholders = ",".join("?" * len(event_ids))
+    if ack:
+        conn.execute(
+            f"UPDATE outbox_events SET status=?, ack_at=?, last_error=NULL WHERE event_id IN ({placeholders})",
+            (status, now, *event_ids))
+    elif status == "PENDING":
+        for eid in event_ids:
             conn.execute("UPDATE outbox_events SET status='PENDING', attempts=attempts+1, last_error=? WHERE event_id=?",
                          (last_error, eid))
-        else:
-            conn.execute("UPDATE outbox_events SET status=?, last_error=? WHERE event_id=?",
-                         (status, last_error, eid))
+    else:
+        conn.execute(
+            f"UPDATE outbox_events SET status=?, last_error=? WHERE event_id IN ({placeholders})",
+            (status, last_error, *event_ids))
 
 
 def run_sync(conn: sqlite3.Connection, transport: Transport, *, limit: int = BATCH_MAX, credential_package_id: str | None = None) -> dict:
@@ -130,25 +135,63 @@ def _scope_records(conn, centre_number, subject_code, paper_type) -> list[dict]:
         "SELECT s.student_id FROM students s JOIN student_subjects ss ON ss.student_id=s.student_id"
         " WHERE s.centre_number=? AND ss.subject_code=?", (centre_number, subject_code)).fetchall()
 
+    if not students:
+        return []
+
     from .entry import resolve_effective_attendance
     from lazeims_common.enums import PaperType
     pt = PaperType(paper_type)
+
+    student_ids = [r["student_id"] for r in students]
+    placeholders = ",".join("?" * len(student_ids))
+
+    # Batch attendance
+    att_rows = conn.execute(
+        f"SELECT student_id, paper_type, is_present FROM attendance"
+        f" WHERE student_id IN ({placeholders}) AND subject_code = ?",
+        (*student_ids, subject_code),
+    ).fetchall()
+    att_specific: dict[str, bool] = {}
+    att_all: dict[str, bool] = {}
+    for r in att_rows:
+        if r["paper_type"] == paper_type:
+            att_specific[r["student_id"]] = bool(r["is_present"])
+        elif r["paper_type"] == "ALL":
+            att_all[r["student_id"]] = bool(r["is_present"])
+    att_map = {sid: att_specific.get(sid, att_all.get(sid, True)) for sid in student_ids}
+
     records = []
-    for row in students:
-        sid = row["student_id"]
-        present = resolve_effective_attendance(conn, sid, subject_code, pt)
-        if is_item:
-            marks = conn.execute(
-                f"SELECT question_id, marks_obtained FROM item_marks WHERE student_id=? AND question_id IN ({','.join('?'*len(qnum_by_id))})",
-                (sid, *qnum_by_id.keys())).fetchall() if qnum_by_id else []
-            items = {qnum_by_id[m["question_id"]]: m["marks_obtained"] for m in marks}
+    if is_item:
+        # Batch item marks
+        q_placeholders = ",".join("?" * len(qnum_by_id))
+        im_rows = conn.execute(
+            f"SELECT student_id, question_id, marks_obtained FROM item_marks"
+            f" WHERE student_id IN ({placeholders}) AND question_id IN ({q_placeholders})",
+            (*student_ids, *qnum_by_id.keys()),
+        ).fetchall() if qnum_by_id else []
+        im_by_student: dict[str, dict] = {}
+        for r in im_rows:
+            im_by_student.setdefault(r["student_id"], {})[qnum_by_id[r["question_id"]]] = r["marks_obtained"]
+
+        for sid in student_ids:
+            present = att_map.get(sid, True)
+            items = im_by_student.get(sid, {})
             if present or items:
                 records.append(normalize_item_record(sid, present, items))
-        else:
-            tm = conn.execute(
-                "SELECT total_marks_obtained FROM total_marks WHERE student_id=? AND subject_code=? AND paper_type=?",
-                (sid, subject_code, paper_type)).fetchone()
-            records.append(normalize_total_record(sid, present, None if tm is None else tm["total_marks_obtained"]))
+    else:
+        # Batch total marks
+        tm_rows = conn.execute(
+            f"SELECT student_id, total_marks_obtained FROM total_marks"
+            f" WHERE student_id IN ({placeholders}) AND subject_code = ? AND paper_type = ?",
+            (*student_ids, subject_code, paper_type),
+        ).fetchall()
+        tm_map = {r["student_id"]: r["total_marks_obtained"] for r in tm_rows}
+
+        for sid in student_ids:
+            present = att_map.get(sid, True)
+            tm = tm_map.get(sid)
+            records.append(normalize_total_record(sid, present, tm))
+
     return records
 
 
