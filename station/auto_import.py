@@ -8,8 +8,10 @@ to ``imports/imported/`` or ``imports/failed/``.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import sqlite3
+import zipfile
 from pathlib import Path
 
 from . import package_import, paths
@@ -26,9 +28,36 @@ def _move(path: Path, dest_dir: Path) -> None:
     shutil.move(str(path), str(target))
 
 
+def _package_sort_key(path: Path) -> tuple[int, tuple, str]:
+    """Order pending packages so the NEWEST version is applied last.
+
+    A station accumulates many versions in ``imports/pending`` (v1 … v11).
+    Plain filename sorting is lexicographic, which places ``-v10``/``-v11``
+    before ``-v2`` — so v9 would be applied last and would silently revert
+    credentials or scopes changed in v11.
+
+    The authoritative ordinal is ``package_version`` inside the zip's
+    ``manifest.json``. When that cannot be read (corrupt/renamed file) fall
+    back to a natural-number key on the filename, then the name itself, so
+    ordering stays deterministic and such files sort last rather than
+    jumping ahead of valid packages.
+    """
+    try:
+        with zipfile.ZipFile(path) as zf:
+            manifest = json.loads(zf.read("manifest.json"))
+        version = int(manifest.get("package_version"))
+        return (0, (version,), path.name)
+    except Exception:  # noqa: BLE001 - unreadable manifest must not break the sweep
+        natural = tuple(
+            int(part) if part.isdigit() else part
+            for part in re.split(r"(\d+)", path.name)
+        )
+        return (1, natural, path.name)
+
+
 def _pending_zips(root: Path) -> list[Path]:
     p = root / "imports" / "pending"
-    return sorted(p.glob("*.zip")) if p.is_dir() else []
+    return sorted(p.glob("*.zip"), key=_package_sort_key) if p.is_dir() else []
 
 
 def _legacy_json_bundles(data_dir: Path) -> list[Path]:

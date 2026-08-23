@@ -271,12 +271,16 @@ try {
     Show-Warn "Could not set firewall rule (non-fatal) - ask IT to allow TCP 8080 inbound"
 }
 
-# Stage bundled exam packages for automatic import on first boot
+# Stage exam packages for automatic import.
+#
+# Every package ever installed on this computer is kept and re-staged: one
+# computer legitimately serves many stations (GEITA, then SIMIYU, ...) and
+# each station's marks live in its own database. Nothing is ever removed here.
 $PkgsDir = Join-Path $AppDir 'packages'
 if (Test-Path $PkgsDir) {
     $PkgZips = Get-ChildItem -Path $PkgsDir -Filter '*.zip' -ErrorAction SilentlyContinue
     if ($PkgZips) {
-        Show-Detail "Staging bundled exam packages for automatic import..."
+        Show-Detail "Staging exam packages for automatic import..."
         $PyHelper = Join-Path $env:TEMP 'laz_manifest.py'
         @(
             'import zipfile, json, sys',
@@ -295,7 +299,7 @@ if (Test-Path $PkgsDir) {
                     $Pending = Join-Path $LazHome "stations\$StnCode\exams\$ExId\imports\pending"
                     New-Item -ItemType Directory -Force -Path $Pending | Out-Null
                     Copy-Item -Force -Path $PkgZip.FullName -Destination $Pending
-                    Show-Ok ("Exam data ready: station=$StnCode")
+                    Show-Ok ("Exam data staged: station=$StnCode")
                 } else {
                     Show-Warn ("Could not read station/exam from: " + $PkgZip.Name)
                 }
@@ -303,7 +307,45 @@ if (Test-Path $PkgsDir) {
                 Show-Warn ("Could not read manifest from: " + $PkgZip.Name)
             }
         }
+
+        # Which station did THIS download target? Read it from the bundle we
+        # were launched from ($KitRoot), not from $AppDir — $AppDir accumulates
+        # every previously installed package, and its first entry is merely
+        # alphabetical (e.g. "dfefefef"), not the station just downloaded.
+        $BundleStation = $null
+        $BundleExam    = $null
+        $KitPkgsDir = Join-Path $KitRoot 'packages'
+        if (Test-Path $KitPkgsDir) {
+            foreach ($KitZip in (Get-ChildItem -Path $KitPkgsDir -Filter '*.zip' -ErrorAction SilentlyContinue)) {
+                $KR = Run-Safe -Exe $Vpy -ExeArgs @($PyHelper, $KitZip.FullName)
+                if ($KR.Code -eq 0) {
+                    $KParts = $KR.Out.Trim() -split '\|'
+                    if ($KParts[0].Trim() -and $KParts.Count -gt 1 -and $KParts[1].Trim()) {
+                        $BundleStation = $KParts[0].Trim()
+                        $BundleExam    = $KParts[1].Trim()
+                        break
+                    }
+                }
+            }
+        }
         Remove-Item -Path $PyHelper -ErrorAction SilentlyContinue
+
+        # Point the login page at the station that was just downloaded. This
+        # only rewrites a one-line pointer file; every other station's data
+        # stays on disk and remains reachable via "Switch station".
+        if ($BundleStation -and $BundleExam) {
+            $StationsDir = Join-Path $LazHome 'stations'
+            New-Item -ItemType Directory -Force -Path $StationsDir | Out-Null
+            $ActiveFile = Join-Path $StationsDir '.active'
+            $ActiveJson = "{`"station_code`":`"$BundleStation`",`"exam_id`":`"$BundleExam`"}"
+            # Must be UTF-8 WITHOUT a BOM: Windows PowerShell 5.1's
+            # `Set-Content -Encoding UTF8` prepends a BOM, which makes the
+            # station's json.loads() reject the file and silently fall back to
+            # "no active station".
+            [System.IO.File]::WriteAllText(
+                $ActiveFile, $ActiveJson, (New-Object System.Text.UTF8Encoding($false)))
+            Show-Ok ("Opening on station: $BundleStation  (others remain available via Switch station)")
+        }
     }
 }
 

@@ -85,32 +85,28 @@ dim  "Opening the local Station page. Sign in as station admin and import the ex
 echo
 
 # ── Auto-stage any bundled exam packages ─────────────────────────────────────
-# If this kit was downloaded as a Complete Bundle (with a specific exam package
-# pre-placed in packages/), copy each .zip to the right imports/pending/ path
-# so the Station imports it automatically on first boot.
+# Every package ever installed on this computer is kept and re-staged: one
+# computer legitimately serves many stations (GEITA, then SIMIYU, ...) and each
+# station's marks live in its own database. Nothing is removed here.
+_manifest_field() {
+    # $1 = zip path, $2 = manifest key
+    python3 -c "
+import zipfile, json, sys
+try:
+    with zipfile.ZipFile(sys.argv[1]) as z:
+        m = json.loads(z.read('manifest.json'))
+    print(m.get(sys.argv[2],''))
+except Exception:
+    sys.exit(1)
+" "$1" "$2" 2>/dev/null || true
+}
+
 PKGS_DIR="$APP_DIR/packages"
 if [[ -d "$PKGS_DIR" ]] && compgen -G "$PKGS_DIR/*.zip" > /dev/null 2>&1; then
-    step "Staging bundled exam package(s) for automatic import"
+    step "Staging exam package(s) for automatic import"
     for pkg_zip in "$PKGS_DIR"/*.zip; do
-        # Read station_code and exam_id from manifest.json inside the zip
-        pkg_station=$(python3 -c "
-import zipfile, json, sys
-try:
-    with zipfile.ZipFile('$pkg_zip') as z:
-        m = json.loads(z.read('manifest.json'))
-    print(m.get('station_code',''))
-except Exception as e:
-    sys.exit(1)
-" 2>/dev/null || true)
-        pkg_exam=$(python3 -c "
-import zipfile, json, sys
-try:
-    with zipfile.ZipFile('$pkg_zip') as z:
-        m = json.loads(z.read('manifest.json'))
-    print(m.get('exam_id',''))
-except Exception as e:
-    sys.exit(1)
-" 2>/dev/null || true)
+        pkg_station=$(_manifest_field "$pkg_zip" station_code)
+        pkg_exam=$(_manifest_field "$pkg_zip" exam_id)
         if [[ -n "$pkg_station" ]] && [[ -n "$pkg_exam" ]]; then
             PENDING="$LAZ_HOME/stations/$pkg_station/exams/$pkg_exam/imports/pending"
             mkdir -p "$PENDING"
@@ -120,6 +116,28 @@ except Exception as e:
             warn "Could not read station_code/exam_id from $(basename "$pkg_zip") — skipping auto-stage"
         fi
     done
+
+    # Which station did THIS download target? Read it from the kit we were
+    # launched from, not from $APP_DIR — that directory accumulates every
+    # previously installed package and its first entry is merely alphabetical.
+    bundle_station=""; bundle_exam=""
+    if [[ -d "$KIT_ROOT/packages" ]] && compgen -G "$KIT_ROOT/packages/*.zip" > /dev/null 2>&1; then
+        for kit_zip in "$KIT_ROOT/packages"/*.zip; do
+            bundle_station=$(_manifest_field "$kit_zip" station_code)
+            bundle_exam=$(_manifest_field "$kit_zip" exam_id)
+            [[ -n "$bundle_station" && -n "$bundle_exam" ]] && break
+        done
+    fi
+
+    # Point the login page at the station just downloaded. This rewrites only a
+    # one-line pointer file; other stations' data stays and remains reachable
+    # through "Switch station".
+    if [[ -n "$bundle_station" ]] && [[ -n "$bundle_exam" ]]; then
+        mkdir -p "$LAZ_HOME/stations"
+        printf '{"station_code":"%s","exam_id":"%s"}' "$bundle_station" "$bundle_exam" \
+            > "$LAZ_HOME/stations/.active"
+        ok "Opening on station: $bundle_station (others remain available via Switch station)"
+    fi
 fi
 
 exec "$LAUNCHER_HOME/start.sh"

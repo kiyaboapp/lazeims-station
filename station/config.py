@@ -58,7 +58,10 @@ def _resolve_active_station(root: Path) -> tuple[str | None, str | None]:
     active_file = stations_root / _ACTIVE_FILENAME
     if active_file.is_file():
         try:
-            active = json.loads(active_file.read_text(encoding="utf-8"))
+            # utf-8-sig: tolerate a UTF-8 BOM. Windows PowerShell 5.1 writes
+            # one by default, and a BOM would otherwise make json.loads fail
+            # and silently drop us into chooser mode.
+            active = json.loads(active_file.read_text(encoding="utf-8-sig"))
             a_code = (active.get("station_code") or "").strip()
             a_exam = (active.get("exam_id") or "").strip()
             if a_code and a_exam:
@@ -332,7 +335,8 @@ def read_active_station(home: Path | None = None) -> dict | None:
     if not active_file.is_file():
         return None
     try:
-        data = json.loads(active_file.read_text(encoding="utf-8"))
+        # utf-8-sig so a BOM-prefixed file (Windows PowerShell default) reads.
+        data = json.loads(active_file.read_text(encoding="utf-8-sig"))
         code = (data.get("station_code") or "").strip()
         exam = (data.get("exam_id") or "").strip()
         if code and exam:
