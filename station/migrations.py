@@ -361,6 +361,42 @@ def import_package(conn: sqlite3.Connection, bundle: dict) -> dict:
                 "INSERT OR REPLACE INTO student_subjects(student_id, subject_code) VALUES(?,?)",
                 (r["student_id"], r["subject_code"]),
             )
+        # Seed marks: only insert if no local marks exist for that scope.
+        # This preserves any locally-entered data while seeding initial state
+        # from existing online marks.
+        for m in seed.get("marks", []):
+            existing = conn.execute(
+                "SELECT 1 FROM total_marks WHERE student_id=? AND subject_code=? AND paper_type=?",
+                (m["student_id"], m["subject_code"], m["paper_type"]),
+            ).fetchone()
+            if not existing:
+                conn.execute(
+                    "INSERT INTO total_marks(student_id, subject_code, paper_type,"
+                    " total_marks_obtained, entered_by, entered_at)"
+                    " VALUES(?,?,?,?,?,?)",
+                    (m["student_id"], m["subject_code"], m["paper_type"],
+                     float(m["total_marks_obtained"]), None, now),
+                )
+
+        for im in seed.get("item_marks", []):
+            # Resolve question_id from subject_code + paper_type + question_number
+            q_row = conn.execute(
+                "SELECT id FROM questions WHERE subject_code=? AND paper_type=? AND question_number=?",
+                (im["subject_code"], im["paper_type"], im["question_number"]),
+            ).fetchone()
+            if q_row:
+                existing = conn.execute(
+                    "SELECT 1 FROM item_marks WHERE student_id=? AND question_id=?",
+                    (im["student_id"], q_row["id"]),
+                ).fetchone()
+                if not existing:
+                    conn.execute(
+                        "INSERT INTO item_marks(student_id, question_id, marks_obtained,"
+                        " entered_by, entered_at)"
+                        " VALUES(?,?,?,?,?)",
+                        (im["student_id"], q_row["id"], float(im["marks_obtained"]),
+                         None, now),
+                    )
         # credentials (hashes only) — upsert by assignment_id so re-imports do
         # not duplicate the same person.
         for c in seed.get("credentials", []):
@@ -417,4 +453,6 @@ def import_package(conn: sqlite3.Connection, bundle: dict) -> dict:
         "subjects": len(seed.get("subjects", [])),
         "students": len(seed.get("students", [])),
         "credentials": len(seed.get("credentials", [])),
+        "marks": len(seed.get("marks", [])),
+        "item_marks": len(seed.get("item_marks", [])),
     }
