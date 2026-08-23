@@ -115,27 +115,32 @@ def run_http_sync(conn: sqlite3.Connection) -> dict:
     central_url = _meta_get(conn, "central_url")
     station_code = _meta_get(conn, "station_code")
     exam_id = _meta_get(conn, "exam_id")
-    log.warning("[run_http_sync] central_url=%r  station_code=%r  exam_id=%r",
-                central_url, station_code, exam_id)
+    log.info("[sync] central_url=%r station_code=%r exam_id=%r",
+             central_url, station_code, exam_id)
 
     if not central_url or not station_code or not exam_id:
         msg = f"missing: central_url={central_url!r} station_code={station_code!r} exam_id={exam_id!r}"
-        log.warning("[run_http_sync] NOT CONFIGURED — %s", msg)
+        log.warning("[sync] not configured — %s", msg)
         return {"configured": False, "reason": f"Central URL not configured or station not adopted ({msg})"}
 
     cred = machine_credential.load(station_code, exam_id)
-    log.warning("[run_http_sync] credential=%r", cred)
+    # Never log the credential itself: it carries the plaintext machine secret,
+    # and station consoles are routinely screenshotted and pasted into chats.
+    # Identify it only by credential_id / package_id.
+    if cred:
+        log.info("[sync] credential_id=%r package_id=%r",
+                 cred.get("credential_id"), cred.get("package_id"))
     if not cred:
         from . import paths
         cred_path = paths.machine_credential_path(station_code, exam_id)
-        log.warning("[run_http_sync] NO CREDENTIAL — looked at path=%r  exists=%r", str(cred_path), cred_path.exists())
+        log.warning("[sync] no credential — looked at path=%r exists=%r", str(cred_path), cred_path.exists())
         return {"configured": False, "reason": f"No package machine credential found (looked at {cred_path})"}
 
     transport = http_transport(central_url, cred["credential_id"], cred["secret"])
     try:
         result = run_sync(conn, transport, credential_package_id=cred.get("package_id"))
-        log.warning("[run_http_sync] run_sync result=%r", result)
+        log.info("[sync] result=%r", result)
         return {"configured": True, **result}
     except RuntimeError as exc:
-        log.warning("[run_http_sync] RuntimeError: %s", exc)
+        log.warning("[sync] RuntimeError: %s", exc)
         return {"configured": True, "error": str(exc), "resumable": True}

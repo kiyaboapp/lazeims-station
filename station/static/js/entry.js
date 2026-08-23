@@ -4,6 +4,16 @@ import { SESSION, CURRENT, ROSTER, ATT, ATT_PERSISTED, ATT_SAVING, MARKS, DEBOUN
 import { dbGet, dbSet, dbDel, draftKey } from './idb.js';
 import { loadPortal } from './portal.js';
 
+// A mark is only enterable if it is also within the paper maximum. The server
+// enforces this (MARK_OUT_OF_RANGE); checking here means the DE is told at the
+// keyboard instead of after the save is silently refused.
+function markOk(v) {
+  if (!isValidMark(v)) return false;
+  if (v.trim() === '') return true;
+  const max = Number(CURRENT?.paper_max);
+  return Number.isFinite(max) && max > 0 ? Number(v) <= max : true;
+}
+
 function showView(name) { if (window._showViewOverride) window._showViewOverride(name); }
 
 export async function enterScope(i) {
@@ -106,12 +116,20 @@ function updateAttSummary() {
 }
 
 // ── Marks ──
-function markSt(st, inv) {
-  if (inv) return '<span class="text-xs text-red-600 dark:text-red-400 font-medium">Invalid</span>';
+function markSt(st, inv, reason) {
+  // "Invalid"/"Failed" alone tells a DE nothing. Carry the concrete reason —
+  // over the paper maximum, marks on an absent student — as hover text.
+  const why = reason ? ` title="${esc(reason)}"` : '';
+  if (inv) {
+    const max = Number(CURRENT?.paper_max);
+    const overMax = Number.isFinite(max) && max > 0
+      ? ` title="Maximum for this paper is ${max}"` : '';
+    return `<span class="text-xs text-red-600 dark:text-red-400 font-medium"${overMax}>Invalid</span>`;
+  }
   if (st === 'saving') return '<span class="text-xs text-amber-600 dark:text-amber-400">Saving…</span>';
   if (st === 'saved') return '<span class="text-xs text-emerald-600 dark:text-emerald-400">✓</span>';
   if (st === 'dirty') return '<span class="text-xs text-indigo-600 dark:text-indigo-400">Unsaved</span>';
-  if (st === 'error') return '<span class="text-xs text-red-600 dark:text-red-400">Failed</span>';
+  if (st === 'error') return `<span class="text-xs text-red-600 dark:text-red-400"${why}>Failed</span>`;
   return '';
 }
 
@@ -120,14 +138,14 @@ function renderMarksTable() {
   $('marks-tbody').innerHTML = ROSTER.map((s, i) => {
     const p = ATT[s.student_id] !== false;
     const cell = MARKS[s.student_id] || { value: '', status: 'idle' };
-    const inv = !isValidMark(cell.value) && cell.value !== '';
+    const inv = !markOk(cell.value) && cell.value !== '';
     return `<tr class="transition-colors ${!p ? 'bg-red-50 dark:bg-red-950/30' : ''} hover:bg-gray-50 dark:hover:bg-gray-800/50">
       <td class="px-3 py-2 text-sm text-gray-500 dark:text-gray-400 font-medium text-center tabular-nums">${i + 1}</td>
       <td class="px-3 py-2 font-mono text-sm font-medium text-gray-900 dark:text-white">${esc(s.student_id)}</td>
       <td class="px-3 py-2 text-sm text-gray-700 dark:text-gray-300">${esc(s.full_name)}</td>
       <td class="px-3 py-2 text-center">${p ? '<span class="text-emerald-700 dark:text-emerald-400 font-bold text-xs">P</span>' : '<span class="inline-flex px-1.5 py-0.5 rounded bg-red-600 text-white font-bold text-[10px]">A</span>'}</td>
       <td class="px-3 py-2">${p ? `<input class="marks-inp w-20 px-2 py-1 rounded border ${inv ? 'border-red-400 bg-red-50 dark:bg-red-950/30' : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800'} text-gray-900 dark:text-white tabular-nums text-sm text-center focus:outline-none focus:ring-2 focus:ring-indigo-300 dark:focus:ring-indigo-600" type="text" inputmode="decimal" value="${esc(cell.value)}" data-sid="${esc(s.student_id)}" placeholder="—" oninput="marksChange('${esc(s.student_id)}',this.value)" onblur="flushMarks()" onkeydown="marksKey(event,'${esc(s.student_id)}',${i})"/>` : '<span class="text-gray-400 dark:text-gray-500">—</span>'}</td>
-      <td class="px-3 py-2 text-center" id="mst-${esc(s.student_id)}">${markSt(cell.status, inv)}</td>
+      <td class="px-3 py-2 text-center" id="mst-${esc(s.student_id)}">${markSt(cell.status, inv, cell.reason)}</td>
     </tr>`;
   }).join('');
   updateMarksSummary();
@@ -136,7 +154,7 @@ function renderMarksTable() {
 
 window.marksChange = function (sid, val) {
   MARKS[sid] = { value: val, status: 'dirty' };
-  const el = $('mst-' + sid); if (el) el.innerHTML = markSt('dirty', !isValidMark(val) && val !== '');
+  const el = $('mst-' + sid); if (el) el.innerHTML = markSt('dirty', !markOk(val) && val !== '');
   persistDrafts();
   if (DEBOUNCE_T) clearTimeout(DEBOUNCE_T);
   setState.debounceT(setTimeout(flushMarks, 800));
@@ -170,7 +188,7 @@ async function persistDrafts() {
 
 async function flushMarks() {
   if (!CURRENT) return;
-  const pending = Object.entries(MARKS).filter(([id, c]) => c.status === 'dirty' && c.value.trim() !== '' && isValidMark(c.value) && ATT[id] !== false);
+  const pending = Object.entries(MARKS).filter(([id, c]) => c.status === 'dirty' && c.value.trim() !== '' && markOk(c.value) && ATT[id] !== false);
   if (!pending.length) return;
   for (const [sid, cell] of pending) {
     MARKS[sid] = { ...cell, status: 'saving' };
@@ -181,8 +199,18 @@ async function flushMarks() {
     }
     const r = await jput(`/api/marks/students?student_id=${encodeURIComponent(sid)}`, { subject_code: CURRENT.subject_code, paper_type: CURRENT.paper_type, mode: 'TOTAL_MARKS', total_marks_obtained: Number(cell.value) });
     if (r.ok) { MARKS[sid] = { value: cell.value, status: 'saved' }; }
-    else { MARKS[sid] = { value: cell.value, status: 'error' }; }
-    const el2 = $('mst-' + sid); if (el2) el2.innerHTML = markSt(MARKS[sid].status, false);
+    else {
+      // Show WHY. The server replies {error:{code,message}} (or {detail:...});
+      // discarding it left the DE with a red icon, no reason, and then an
+      // unexplained 409 on finalize.
+      const body = await r.json().catch(() => ({}));
+      const reason = body.error?.message || body.detail?.message || body.detail
+        || `Rejected (HTTP ${r.status})`;
+      MARKS[sid] = { value: cell.value, status: 'error', reason };
+      const name = ROSTER.find(s => s.student_id === sid)?.full_name || sid;
+      setMsg('entry-msg', `${name}: ${reason}`, true);
+    }
+    const el2 = $('mst-' + sid); if (el2) el2.innerHTML = markSt(MARKS[sid].status, false, MARKS[sid].reason);
   }
   await persistDrafts();
   updateMarksSummary();

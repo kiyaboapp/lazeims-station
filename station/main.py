@@ -540,6 +540,15 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
                     "subject_code": r["subject_code"],
                     "subject_name": subj["name"] if subj else r["subject_code"],
                     "paper_type": p,
+                    # The maximum this paper can score. The entry screen needs it
+                    # to reject an over-max mark before sending: the server
+                    # enforces it (MARK_OUT_OF_RANGE) but the DE should be told
+                    # at the keyboard, not after the save fails.
+                    "paper_max": (subj[{
+                        "THEORY1": "total_theory1",
+                        "THEORY2": "total_theory2",
+                        "PRACTICAL": "total_practical",
+                    }[p]] if subj else None),
                     "lock_status": (lock["status"] if lock else None),
                     "lock_owner": lock_owner_name,
                     "finalized": fin is not None,
@@ -759,9 +768,12 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
 
         # Get finalization info
         scope_key = f"{centre_number}|{subject_code}|{paper_type.value}"
-        fin_row = conn.execute("SELECT finalized_at, actor_assignment_id FROM finalized_scopes WHERE scope_key=?", (scope_key,)).fetchone()
+        # NOTE: the column is ``finalized_by`` (see the finalized_scopes schema
+        # in migrations.py and the INSERT in finalize.py). Selecting a
+        # non-existent ``actor_assignment_id`` made this endpoint 500.
+        fin_row = conn.execute("SELECT finalized_at, finalized_by FROM finalized_scopes WHERE scope_key=?", (scope_key,)).fetchone()
         finalized_at = fin_row["finalized_at"] if fin_row else None
-        enterer_id = fin_row["actor_assignment_id"] if fin_row else None
+        enterer_id = fin_row["finalized_by"] if fin_row else None
         enterer_initials = None
         if enterer_id:
             u_row = conn.execute("SELECT initials FROM station_users WHERE assignment_id=?", (enterer_id,)).fetchone()
@@ -818,14 +830,28 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
         import datetime as _dt
         today_prefix = _dt.date.today().isoformat()  # "YYYY-MM-DD"
 
-        # If user_id is provided, scope filtering to that user's assignments
+        # Who are we reporting on?
+        #
+        # A Data Enterer always sees exactly their own scopes, derived from the
+        # session — never from a client-supplied id. That keeps one DE from
+        # reading another's progress, and means the caller does not have to know
+        # its own row id (the session cookie carries no assignment_id, so a page
+        # reload used to send the literal string "undefined" here and 422).
+        #
+        # ``user_id`` remains available to an admin inspecting one user, and is
+        # a ``station_users.id`` — not an ``assignment_id``.
         scope_filter = None
-        if user_id is not None:
+        scope_assignment_id = 0
+        if a["role"] == "DATA_ENTERER":
+            scope_assignment_id = a["assignment_id"]
+            scope_filter = de_scopes_for(conn, scope_assignment_id)
+        elif user_id is not None:
             user_row = conn.execute(
                 "SELECT assignment_id FROM station_users WHERE id=?", (user_id,)
             ).fetchone()
             if user_row:
-                scope_filter = de_scopes_for(conn, user_row["assignment_id"])
+                scope_assignment_id = user_row["assignment_id"]
+                scope_filter = de_scopes_for(conn, scope_assignment_id)
 
         # Total scopes (distinct centre+subject+paper combinations)
         all_scopes = conn.execute(
@@ -896,9 +922,9 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
                 "   AND (? = '' OR ss.subject_code IN (SELECT subject_code FROM user_scopes WHERE assignment_id=?)))",
                 (today_prefix + "%",
                  "" if not scope_filter["centres"] else "x",
-                 (user_row["assignment_id"] if user_row else 0),
+                 scope_assignment_id,
                  "" if not scope_filter["subjects"] else "x",
-                 (user_row["assignment_id"] if user_row else 0))
+                 scope_assignment_id)
             ).fetchone()["c"]
             item_today = 0  # simplified for scoped view
         marks_today_total = marks_today + (item_today if scope_filter is None else 0)
@@ -1094,18 +1120,18 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
         central_url  = _meta_get(conn, "central_url")
         station_code = _meta_get(conn, "station_code")
         exam_id      = _meta_get(conn, "exam_id")
-        log.warning("[SYNC-DEBUG] central_url=%r  station_code=%r  exam_id=%r",
+        log.info("[sync] central_url=%r  station_code=%r  exam_id=%r",
                     central_url, station_code, exam_id)
 
         cred = None
         if station_code and exam_id:
             cred = mc_mod.load(station_code, exam_id)
-        log.warning("[SYNC-DEBUG] credential loaded=%r  credential_id=%r",
-                    cred is not None, cred.get("credential_id") if cred else None)
+        log.info("[sync] credential loaded=%r  credential_id=%r",
+                 cred is not None, cred.get("credential_id") if cred else None)
 
         from .sync_http import run_http_sync
         result = run_http_sync(conn)
-        log.warning("[SYNC-DEBUG] run_http_sync result=%r", result)
+        log.info("[sync] result=%r", result)
         return result
 
     @app.get("/api/sync/rejected", tags=["sync"])

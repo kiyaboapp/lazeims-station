@@ -276,9 +276,11 @@
 
     async function loadDEDashboard() {
       try {
-        const userId = SESSION.assignment_id;
+        // No user_id: the server scopes progress to the signed-in DE from the
+        // session. The session cookie carries no assignment_id, so passing one
+        // from here sent "undefined" and failed validation.
         const [progress, scopes] = await Promise.all([
-          api(`/api/progress?user_id=${userId}`).then(r => r.json()),
+          api('/api/progress').then(r => r.json()),
           api('/api/scopes').then(r => r.json()),
         ]);
 

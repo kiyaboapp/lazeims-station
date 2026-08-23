@@ -1,6 +1,6 @@
 // finalize.js — finalize button, completeness check, incidents
 import { $, api, jpost, esc, setMsg } from './api.js';
-import { CURRENT } from './state.js';
+import { CURRENT, MARKS, ROSTER } from './state.js';
 import { loadPortal } from './portal.js';
 
 window.jumpToStudent = function (sid) {
@@ -23,8 +23,29 @@ export function initFinalize() {
       setTimeout(() => $('entry-back')?.click(), 1400);
     } else {
       const d = await r.json().catch(() => ({}));
-      const b = (d.detail?.result?.blockers || []).map(x => x.message).join('; ');
-      setMsg('entry-msg', 'Cannot finalize: ' + (b || 'incomplete data'), true);
+      const blockers = d.detail?.result?.blockers || [];
+      // The shared rule can only say "present student has incomplete marks and
+      // no incident" — it describes the symptom. When we know locally WHY that
+      // mark never stored (over the paper maximum, marks on an absent student),
+      // report that instead; it is the thing the DE can act on.
+      const seen = new Set();
+      const lines = blockers.map(b => {
+        const sid = b.student_id;
+        const name = ROSTER.find(s => s.student_id === sid)?.full_name || sid || '';
+        const local = sid ? MARKS[sid] : null;
+        if (local?.status === 'error' && local.reason) return `${name}: ${local.reason}`;
+        if (local && local.value?.trim() !== '' && local.status === 'dirty') {
+          return `${name}: mark typed but not saved yet`;
+        }
+        return b.message;
+      }).filter(m => m && !seen.has(m) && seen.add(m));
+
+      const max = Number(CURRENT?.paper_max);
+      const hint = lines.some(l => /out of range|maximum/i.test(l)) && Number.isFinite(max) && max > 0
+        ? ` (maximum for this paper is ${max})` : '';
+      setMsg('entry-msg',
+             'Cannot finalize' + hint + ': ' + (lines.join('; ') || 'incomplete data'),
+             true);
     }
   });
 
