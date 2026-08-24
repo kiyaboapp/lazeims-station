@@ -1905,6 +1905,68 @@ def create_app(config: StationConfig | None = None) -> FastAPI:
         result.sort(key=lambda x: x["subject_code"])
         return result
 
+    # ---------------- Excel export ----------------
+
+    @app.get("/api/export/marks", tags=["export"])
+    def export_marks_endpoint(conn=Depends(db), a=Depends(actor)):
+        """Export all marks data to an Excel workbook (one sheet per subject)."""
+        if a["role"] != "EXAM_ADMIN":
+            raise HTTPException(403, "Only the station admin may export data")
+        import os
+        import tempfile
+        from starlette.background import BackgroundTask
+        from .excel_export import export_marks_excel
+        tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+        tmp_path = tmp.name
+        tmp.close()
+        export_marks_excel(conn, tmp_path)
+        return FileResponse(
+            tmp_path,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            filename="marks_export.xlsx",
+            background=BackgroundTask(os.unlink, tmp_path),
+        )
+
+    @app.get("/api/export/attendance", tags=["export"])
+    def export_attendance_endpoint(conn=Depends(db), a=Depends(actor)):
+        """Export all attendance data to an Excel workbook."""
+        if a["role"] != "EXAM_ADMIN":
+            raise HTTPException(403, "Only the station admin may export data")
+        import os
+        import tempfile
+        from starlette.background import BackgroundTask
+        from .excel_export import export_attendance_excel
+        tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+        tmp_path = tmp.name
+        tmp.close()
+        export_attendance_excel(conn, tmp_path)
+        return FileResponse(
+            tmp_path,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            filename="attendance_export.xlsx",
+            background=BackgroundTask(os.unlink, tmp_path),
+        )
+
+    @app.get("/api/export/all", tags=["export"])
+    def export_all_endpoint(conn=Depends(db), a=Depends(actor)):
+        """Export all marks and attendance data to a combined Excel workbook."""
+        if a["role"] != "EXAM_ADMIN":
+            raise HTTPException(403, "Only the station admin may export data")
+        import os
+        import tempfile
+        from starlette.background import BackgroundTask
+        from .excel_export import export_all_data_excel
+        tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+        tmp_path = tmp.name
+        tmp.close()
+        export_all_data_excel(conn, tmp_path)
+        return FileResponse(
+            tmp_path,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            filename="station_data_export.xlsx",
+            background=BackgroundTask(os.unlink, tmp_path),
+        )
+
     import os as _os
     _autosync_secs = int((_os.environ.get("STATION_AUTOSYNC_SECONDS") or "0") or "0")
 

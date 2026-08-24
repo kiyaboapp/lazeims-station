@@ -21,7 +21,9 @@ from . import machine_credential
 from .db import transaction
 from .sync import run_sync
 
-SYNC_PATH = "/api/v1/station/sync/events"
+DEFAULT_SYNC_PATH = "/api/v1/station/sync/events"
+# Keep SYNC_PATH as alias for backward compatibility
+SYNC_PATH = DEFAULT_SYNC_PATH
 
 
 def _meta_get(conn: sqlite3.Connection, key: str) -> str | None:
@@ -42,11 +44,15 @@ def get_sync_config(conn: sqlite3.Connection) -> dict:
     station_code = _meta_get(conn, "station_code")
     exam_id = _meta_get(conn, "exam_id")
     central_url = _meta_get(conn, "central_url")
+    sync_path = _meta_get(conn, "sync_path") or DEFAULT_SYNC_PATH
+    backend_type = _meta_get(conn, "backend_type") or ""
     has_credential = False
     if station_code and exam_id:
         has_credential = machine_credential.load(station_code, exam_id) is not None
     return {
         "central_url": central_url,
+        "sync_path": sync_path,
+        "backend_type": backend_type,
         "has_credential": has_credential,
         "configured": bool(central_url) and has_credential,
     }
@@ -80,8 +86,22 @@ def seed_central_url_from_package(conn: sqlite3.Connection, central_url: str) ->
             _meta_set(conn, "central_url", central_url.strip().rstrip("/"))
 
 
-def http_transport(central_url: str, credential_id: str, secret: str) -> Callable[[dict], dict]:
-    endpoint = central_url.rstrip("/") + SYNC_PATH
+def seed_sync_path_from_package(conn: sqlite3.Connection, sync_path: str) -> None:
+    """Always write the sync_path that comes from an imported package.
+
+    This is called during a package import where the package is the
+    authoritative source for the sync path. It will overwrite a stale value
+    so sync targets the correct endpoint immediately after importing.
+    """
+    if sync_path and sync_path.strip():
+        with transaction(conn):
+            _meta_set(conn, "sync_path", sync_path.strip())
+
+
+def http_transport(central_url: str, credential_id: str, secret: str,
+                   sync_path: str | None = None) -> Callable[[dict], dict]:
+    path = sync_path or DEFAULT_SYNC_PATH
+    endpoint = central_url.rstrip("/") + path
 
     def _transport(body: dict) -> dict:
         data = json.dumps(body).encode("utf-8")
@@ -115,8 +135,9 @@ def run_http_sync(conn: sqlite3.Connection) -> dict:
     central_url = _meta_get(conn, "central_url")
     station_code = _meta_get(conn, "station_code")
     exam_id = _meta_get(conn, "exam_id")
-    log.info("[sync] central_url=%r station_code=%r exam_id=%r",
-             central_url, station_code, exam_id)
+    sync_path = _meta_get(conn, "sync_path") or DEFAULT_SYNC_PATH
+    log.info("[sync] central_url=%r station_code=%r exam_id=%r sync_path=%r",
+             central_url, station_code, exam_id, sync_path)
 
     if not central_url or not station_code or not exam_id:
         msg = f"missing: central_url={central_url!r} station_code={station_code!r} exam_id={exam_id!r}"
@@ -136,7 +157,8 @@ def run_http_sync(conn: sqlite3.Connection) -> dict:
         log.warning("[sync] no credential — looked at path=%r exists=%r", str(cred_path), cred_path.exists())
         return {"configured": False, "reason": f"No package machine credential found (looked at {cred_path})"}
 
-    transport = http_transport(central_url, cred["credential_id"], cred["secret"])
+    transport = http_transport(central_url, cred["credential_id"], cred["secret"],
+                              sync_path=sync_path)
     try:
         result = run_sync(conn, transport, credential_package_id=cred.get("package_id"))
         log.info("[sync] result=%r", result)

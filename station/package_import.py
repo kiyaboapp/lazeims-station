@@ -119,6 +119,32 @@ def import_bundle(conn: sqlite3.Connection, bundle: dict) -> dict:
             result["central_url_seeded"] = False
             result["central_url_seed_error"] = str(exc)
 
+    # Seed the sync_path from the package so the station knows which endpoint
+    # to POST events to (allows backend-sis to specify a different path than
+    # the default lazeims-core path).
+    sync_path = manifest.get("sync_path") or ""
+    if sync_path and sync_path.strip():
+        try:
+            from .sync_http import seed_sync_path_from_package
+            seed_sync_path_from_package(conn, sync_path.strip())
+            result["sync_path_seeded"] = True
+        except Exception as exc:  # noqa: BLE001
+            result["sync_path_seeded"] = False
+            result["sync_path_seed_error"] = str(exc)
+
+    # Store backend_type from the manifest so the station knows whether it is
+    # talking to lazeims-core or backend-sis (for future UI differentiation).
+    backend_type = manifest.get("backend_type", "")
+    if backend_type and backend_type.strip():
+        try:
+            from .sync_http import _meta_set
+            from .db import transaction as _tx
+            with _tx(conn):
+                _meta_set(conn, "backend_type", backend_type.strip())
+            result["backend_type_stored"] = True
+        except Exception as exc:  # noqa: BLE001
+            result["backend_type_stored"] = False
+
     return result
 
 
